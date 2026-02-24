@@ -19,6 +19,7 @@ If a request is ambiguous or contradicts the specs:
 - **Lint/Format:** Ruff
 - **Typing:** `mypy --strict`; avoid `Any` unless required (must annotate with `# justification: [reason]`)
 - **Testing:** `pytest` (+ `pytest-asyncio`)
+- **Documentation:** Use Google-style Python docstrings for all modules, classes, and functions to explain logic and intent. Compliance is enforced via Ruff.
 
 ## 4. Safety & Repo Hygiene
 - **No Secrets:** Never commit secrets. Config files must reference env var names only.

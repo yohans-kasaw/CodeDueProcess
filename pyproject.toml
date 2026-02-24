@@ -4,4 +4,23 @@ version = "0.1.0"
 description = "An autonomous multi-agent swarm that acts as a digital courtroom to forensically audit, debate, and govern AI-generated codebases using LangGraph."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "langchain-litellm>=0.5.1",
+    "langgraph>=1.0.9",
+    "python-dotenv>=1.2.1",
+]
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "D",    # pydocstyle
+    "UP",   # pyupgrade
+    "I",    # isort
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
