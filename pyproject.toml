@@ -1,0 +1,7 @@
+[project]
+name = "codedueprocess"
+version = "0.1.0"
+description = "An autonomous multi-agent swarm that acts as a digital courtroom to forensically audit, debate, and govern AI-generated codebases using LangGraph."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
