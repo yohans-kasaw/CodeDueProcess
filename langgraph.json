@@ -1,7 +1,7 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "agent": "./main.py:agent"
+    "agent": "codedueprocess.agent:agent"
   },
   "env": ".env"
 }
