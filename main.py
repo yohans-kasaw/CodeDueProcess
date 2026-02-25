@@ -5,6 +5,7 @@ calling tools using the Gemini model.
 """
 
 import os
+import warnings
 from collections.abc import Sequence
 from typing import Annotated
 
@@ -16,6 +17,9 @@ from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
+
+# Suppress Pydantic UserWarnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 # Load environment variables
 load_dotenv()
