@@ -1,4 +1,5 @@
-# Root main.py entry point
+"""Entry point for the CodeDueProcess application."""
+
 from src.codedueprocess.main import run
 
 if __name__ == "__main__":

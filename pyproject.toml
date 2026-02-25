@@ -29,4 +29,6 @@ convention = "google"
 [dependency-groups]
 dev = [
     "langgraph-cli[inmem]>=0.4.12",
+    "mypy>=1.19.1",
+    "pre-commit>=4.5.1",
 ]

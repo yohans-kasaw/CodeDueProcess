@@ -1,12 +1,15 @@
-# codedueprocess/config.py
+"""Configuration settings for the CodeDueProcess application."""
+
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Determine the project root directory (three levels up from this file: src/codedueprocess/config.py -> src/codedueprocess -> src -> root)
+# Determine the project root directory
+# (three levels up: src/codedueprocess/config.py -> src/codedueprocess -> src -> root)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Configuration Constants

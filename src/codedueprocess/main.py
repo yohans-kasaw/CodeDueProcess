@@ -1,12 +1,25 @@
-# codedueprocess/main.py
+"""Main entry point for the CodeDueProcess agent."""
+
 from langchain_core.messages import HumanMessage
-from .agent import agent
+
+from .agent import AgentState, agent
 
 
-def run():
+def run() -> None:
     """Run the agent with a sample query."""
     # Ensure inputs match the AgentState definition
-    inputs = {"messages": [HumanMessage(content="What is the weather in Addis Ababa?")]}
+    inputs: AgentState = {
+        "messages": [
+            HumanMessage(
+                content=(
+                    "Use the search_web tool to find out what LangGraph is, and then "
+                    "calculate stats on the string 'LangGraph Rules' using the "
+                    "calculate_stats tool."
+                )
+            )
+        ],
+        "next": "Supervisor",
+    }
 
     print(f"Running query: {inputs['messages'][0].content}")
 

@@ -1,12 +1,14 @@
-# codedueprocess/cache.py
-from typing import Sequence
+"""Custom caching implementation for CodeDueProcess."""
+
+from collections.abc import Sequence
+
 from langchain_community.cache import SQLiteCache
-from langchain_core.outputs import Generation, ChatGeneration
+from langchain_core.outputs import ChatGeneration, Generation
 
 
 class LiteLLMCache(SQLiteCache):
-    """
-    A custom SQLiteCache that sanitizes LangChain generations before storing them.
+    """A custom SQLiteCache that sanitizes LangChain generations before storing them.
+
     This is necessary because ChatLiteLLM returns objects (like litellm.Usage)
     that are not serializable by LangChain's default serializer.
     """
@@ -14,6 +16,13 @@ class LiteLLMCache(SQLiteCache):
     def update(
         self, prompt: str, llm_string: str, return_val: Sequence[Generation]
     ) -> None:
+        """Update the cache with the given prompt and return value.
+
+        Args:
+            prompt: The prompt string.
+            llm_string: The LLM configuration string.
+            return_val: The list of generations to cache.
+        """
         for gen in return_val:
             # Sanitize response_metadata
             if isinstance(gen, ChatGeneration) and hasattr(
