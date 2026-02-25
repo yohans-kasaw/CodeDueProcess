@@ -24,3 +24,8 @@ select = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[dependency-groups]
+dev = [
+    "langgraph-cli[inmem]>=0.4.12",
+]

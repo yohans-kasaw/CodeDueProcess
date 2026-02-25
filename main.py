@@ -64,14 +64,14 @@ workflow.add_edge(START, "agent")
 workflow.add_conditional_edges("agent", tools_condition)  # Simplified mapping
 workflow.add_edge("tools", "agent")
 
-app = workflow.compile()
+agent = workflow.compile()
 
 # Execution
 # Cast inputs to AgentState to satisfy type checker
 inputs: AgentState = {
     "messages": [HumanMessage(content="What is the weather in Addis Ababa?")]
 }
-for chunk in app.stream(inputs, stream_mode="values"):
+for chunk in agent.stream(inputs, stream_mode="values"):
     final_msg = chunk["messages"][-1]
     # This lets you see the tool calls AND the final response
     if hasattr(final_msg, "content"):
