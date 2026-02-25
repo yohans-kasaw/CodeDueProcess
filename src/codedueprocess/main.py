@@ -1,34 +1,38 @@
-"""Main entry point for the CodeDueProcess agent."""
+import asyncio
+import logging
 
-from langchain_core.messages import HumanMessage
+from .agent import build_graph
 
-from .agent import AgentState, agent
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def run() -> None:
-    """Run the agent with a sample query."""
-    # Ensure inputs match the AgentState definition
-    inputs: AgentState = {
-        "messages": [
-            HumanMessage(
-                content=(
-                    "Use the search_web tool to find out what LangGraph is, and then "
-                    "calculate stats on the string 'LangGraph Rules' using the "
-                    "calculate_stats tool."
-                )
-            )
+async def run_audit(repo_url: str, pdf_path: str):
+    graph = build_graph()
+
+    initial_state = {
+        "repo_url": repo_url,
+        "pdf_path": pdf_path,
+        "rubric_dimensions": [
+            {"id": "accuracy", "name": "Forensic Accuracy"},
+            {"id": "nuance", "name": "Judicial Nuance"},
+            {"id": "architecture", "name": "LangGraph Architecture"},
         ],
-        "next": "Supervisor",
+        "evidences": {},
+        "opinions": [],
     }
 
-    print(f"Running query: {inputs['messages'][0].content}")
+    result = await graph.ainvoke(initial_state)
+    report = result["final_report"]
 
-    for chunk in agent.stream(inputs, stream_mode="values"):
-        final_msg = chunk["messages"][-1]
-        # This lets you see the tool calls AND the final response
-        if hasattr(final_msg, "content"):
-            print(f"Role: {type(final_msg).__name__} | Content: {final_msg.content}")
+    print(f"Audit Report for {report.repo_url}")
+    print(f"Overall Score: {report.overall_score}/5")
+    print("\nCriteria Results:")
+    for crit in report.criteria:
+        print(f"- {crit.dimension_name}: {crit.final_score}/5")
+        if crit.dissent_summary:
+            print(f"  DISSENT: {crit.dissent_summary}")
 
 
 if __name__ == "__main__":
-    run()
+    asyncio.run(run_audit("https://github.com/user/repo", "reports/spec.pdf"))

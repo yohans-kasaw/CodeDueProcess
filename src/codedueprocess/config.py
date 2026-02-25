@@ -1,20 +1,32 @@
-"""Configuration settings for the CodeDueProcess application."""
-
-import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
-# Load environment variables
-load_dotenv()
 
-# Determine the project root directory
-# (three levels up: src/codedueprocess/config.py -> src/codedueprocess -> src -> root)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+class Settings(BaseSettings):
+    """Configuration settings for the CodeDueProcess application."""
 
-# Configuration Constants
-LLM_MODEL = os.getenv("LLM_MODEL", "")
-APP_ENV = os.getenv("APP_ENV", "development")
+    # LLM Settings
+    LLM_MODEL: str = "gpt-4o"
+    TEMPERATURE: float = 0.0
 
-# Database Path - stored in the project root
-DB_PATH = str(PROJECT_ROOT / ".langchain.db")
+    # LangChain / LangSmith Settings
+    LANGCHAIN_TRACING_V2: str = "true"
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
+    LANGCHAIN_API_KEY: str = ""
+    LANGCHAIN_PROJECT: str = "CodeDueProcess"
+
+    # Environment
+    APP_ENV: str = "development"
+
+    # Paths
+    PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+    DB_PATH: str = str(PROJECT_ROOT / ".langchain.db")
+    CHROMA_PATH: str = "./chroma_db"
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+
+settings = Settings()
