@@ -1,4 +1,7 @@
-"""Configuration settings for the CodeDueProcess application."""
+"""Configuration for sandbox - LangGraph testing environment.
+
+Environment-based configuration system.
+"""
 
 import os
 from pathlib import Path

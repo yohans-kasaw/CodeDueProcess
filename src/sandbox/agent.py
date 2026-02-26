@@ -1,4 +1,8 @@
-"""Agent definition for CodeDueProcess."""
+"""Agent definition for sandbox - LangGraph testing environment.
+
+This module implements a multi-agent workflow with Supervisor, Researcher, and
+Analyst nodes for testing LangGraph patterns and agent behaviors.
+"""
 
 import logging
 import operator

@@ -1,4 +1,7 @@
-"""Tools available for the CodeDueProcess agent."""
+"""Tools for sandbox - LangGraph testing environment.
+
+Mock tools for demonstrating agent capabilities.
+"""
 
 from langchain_core.tools import tool
 

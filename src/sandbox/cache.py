@@ -1,4 +1,7 @@
-"""Custom caching implementation for CodeDueProcess."""
+"""Caching for sandbox - LangGraph testing environment.
+
+Custom SQLite cache implementation for LLM responses with LiteLLM sanitization.
+"""
 
 from collections.abc import Sequence
 

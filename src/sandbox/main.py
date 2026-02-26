@@ -1,4 +1,7 @@
-"""Main entry point for the CodeDueProcess agent."""
+"""Main entry point for sandbox - LangGraph testing environment.
+
+Example usage demonstrating the multi-agent workflow.
+"""
 
 import logging
 
