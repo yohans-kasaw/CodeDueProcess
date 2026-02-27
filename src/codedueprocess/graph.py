@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NotRequired
+from typing import Any, NotRequired, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
+from langsmith import traceable
 from typing_extensions import TypedDict
 
 from src.codedueprocess.agents import (
@@ -54,7 +55,7 @@ class AuditRuntimeContext(TypedDict):
     trace_id: NotRequired[str]
 
 
-def build_audit_graph(models: AuditGraphModels) -> object:
+def build_audit_graph(models: AuditGraphModels) -> Any:
     """Build the parallel detective -> judge -> chief justice topology."""
     builder = StateGraph(AgentState, context_schema=AuditRuntimeContext)
 
@@ -95,6 +96,19 @@ def build_audit_graph(models: AuditGraphModels) -> object:
 
     builder.add_edge("chief_justice", END)
     return builder.compile()
+
+
+@traceable(name="audit_graph_invoke", run_type="chain")
+def run_audit(
+    models: AuditGraphModels,
+    state: AgentState,
+    context: AuditRuntimeContext | None = None,
+) -> dict[str, object]:
+    """Invoke the compiled graph at the orchestration boundary."""
+    graph = build_audit_graph(models)
+    if context is None:
+        return cast(dict[str, object], graph.invoke(state))
+    return cast(dict[str, object], graph.invoke(state, context=context))
 
 
 def _as_graph_node(node: StateNode) -> RunnableLambda[AgentState, dict[str, object]]:

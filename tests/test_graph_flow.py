@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from langsmith import testing as t
 from pydantic import ValidationError
 
-from src.codedueprocess.graph import AuditGraphModels, build_audit_graph
+from src.codedueprocess.graph import AuditGraphModels, build_audit_graph, run_audit
 from src.codedueprocess.schemas.models import Dimension
 from src.codedueprocess.state import AgentState
 
@@ -56,7 +57,21 @@ def test_graph_flow_produces_final_report_and_aggregates_parallel_outputs(
         )
     )
 
-    result = graph.invoke(_graph_state())
+    state = _graph_state()
+    t.log_inputs(
+        {
+            "repo_url": state["repo_url"],
+            "dimensions": [d.id for d in state["rubric_dimensions"]],
+        }
+    )
+    result = graph.invoke(state)
+    t.log_outputs(
+        {
+            "overall_score": result["final_report"].overall_score,
+            "opinions_count": len(result["opinions"]),
+        }
+    )
+    t.log_reference_outputs({"opinions_count": 3})
 
     assert result["final_report"].overall_score == 4.1
     assert "repository_facts" in result["evidences"]
@@ -67,6 +82,29 @@ def test_graph_flow_produces_final_report_and_aggregates_parallel_outputs(
         "Defense",
         "TechLead",
     }
+
+
+def test_run_audit_boundary_is_invocable(
+    mockllm_repo_evidence,
+    mockllm_doc_evidence,
+    mockllm_judicial_opinion,
+    mockllm_defense_opinion,
+    mockllm_techlead_opinion,
+    mockllm_audit_report,
+) -> None:
+    """Top-level orchestration boundary should run with traceable wrapper."""
+    models = AuditGraphModels(
+        repo_investigator=mockllm_repo_evidence,
+        doc_analyst=mockllm_doc_evidence,
+        prosecutor=mockllm_judicial_opinion,
+        defense=mockllm_defense_opinion,
+        tech_lead=mockllm_techlead_opinion,
+        chief_justice=mockllm_audit_report,
+    )
+    result = run_audit(models=models, state=_graph_state())
+    t.log_outputs({"boundary_score": result["final_report"].overall_score})
+
+    assert result["final_report"].overall_score == 4.1
 
 
 def test_compiled_node_invocation_for_repo_investigator(mockllm_repo_evidence) -> None:

@@ -1,12 +1,42 @@
 """Shared fixtures for test suite."""
 
 import json
+from collections.abc import Iterator
+from itertools import cycle
 from typing import Any
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableLambda
+
+
+@pytest.fixture(autouse=True)
+def disable_tracing(monkeypatch):
+    """Disable LangChain tracing for all tests to prevent hangs."""
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
+
+
+@pytest.fixture(autouse=True)
+def mock_langsmith_testing(monkeypatch):
+    """Mock langsmith testing functions to prevent network calls."""
+    try:
+        import langsmith.testing
+
+        monkeypatch.setattr(
+            langsmith.testing, "log_inputs", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            langsmith.testing, "log_outputs", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            langsmith.testing, "log_reference_outputs", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            langsmith.testing, "log_feedback", lambda *args, **kwargs: None
+        )
+    except ImportError:
+        pass
 
 
 @pytest.fixture
@@ -78,6 +108,12 @@ class StructuredGenericFakeChatModel(GenericFakeChatModel):
         return RunnableLambda(_invoke)
 
 
+def _repeat_message(payload: str, count: int = 8) -> Iterator[AIMessage]:
+    """Provide multiple deterministic messages to tolerate retries/replays."""
+    del count
+    return cycle([AIMessage(content=payload)])
+
+
 @pytest.fixture
 def mockllm_judicial_opinion() -> GenericFakeChatModel:
     """Provide deterministic mock LLM output for successful JudicialOpinion parsing."""
@@ -86,7 +122,7 @@ def mockllm_judicial_opinion() -> GenericFakeChatModel:
         '"argument":"Commit history shows deliberate progress.",'
         '"cited_evidence":["repo:commits", "docs:milestones"]}'
     )
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
 
 
 @pytest.fixture
@@ -97,7 +133,7 @@ def mockllm_defense_opinion() -> GenericFakeChatModel:
         '"argument":"Repository demonstrates partial requirement coverage.",'
         '"cited_evidence":["repo:modules", "docs:claims"]}'
     )
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
 
 
 @pytest.fixture
@@ -108,14 +144,14 @@ def mockllm_techlead_opinion() -> GenericFakeChatModel:
         '"argument":"Architecture is maintainable with minor caveats.",'
         '"cited_evidence":["repo:tree", "doc:architecture"]}'
     )
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
 
 
 @pytest.fixture
 def mockllm_malformed_judicial_opinion() -> GenericFakeChatModel:
     """Provide deterministic malformed output for schema-failure testing."""
     payload = '{"judge":"Prosecutor","criterion_id":"git_history","score":"bad"}'
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
 
 
 @pytest.fixture
@@ -127,7 +163,7 @@ def mockllm_repo_evidence() -> GenericFakeChatModel:
         '"location":".git/logs","rationale":"History is descriptive",'
         '"confidence":0.92}]}'
     )
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
 
 
 @pytest.fixture
@@ -140,7 +176,7 @@ def mockllm_doc_evidence() -> GenericFakeChatModel:
         '"rationale":"Claim is explicit in documentation",'
         '"confidence":0.88}]}'
     )
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
 
 
 @pytest.fixture
@@ -160,4 +196,4 @@ def mockllm_audit_report() -> GenericFakeChatModel:
         '"remediation":"Keep commit messages descriptive."}],'
         '"remediation_plan":"Address medium-priority findings in next sprint."}'
     )
-    return StructuredGenericFakeChatModel(messages=iter([AIMessage(content=payload)]))
+    return StructuredGenericFakeChatModel(messages=_repeat_message(payload))
