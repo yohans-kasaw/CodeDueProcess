@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, NotRequired
+from time import perf_counter
+from typing import Any, NotRequired, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableLambda
@@ -19,6 +20,7 @@ from codedueprocess.agents import (
     make_tech_lead_node,
 )
 from codedueprocess.agents.types import StateNode
+from codedueprocess.printing.tracer import AuditTracer
 from codedueprocess.state import AgentState
 
 
@@ -54,29 +56,44 @@ class AuditRuntimeContext(TypedDict):
     trace_id: NotRequired[str]
 
 
-def build_audit_graph(models: AuditGraphModels) -> Any:
+def build_audit_graph(
+    models: AuditGraphModels, tracer: AuditTracer | None = None
+) -> Any:
     """Build the parallel detective -> judge -> chief justice topology."""
     builder = StateGraph(AgentState, context_schema=AuditRuntimeContext)
 
     builder.add_node(
         "repo_investigator",
-        _as_graph_node(make_repo_investigator_node(models.repo_investigator)),
+        _as_graph_node(
+            "repo_investigator",
+            make_repo_investigator_node(models.repo_investigator),
+            tracer,
+        ),
     )
     builder.add_node(
         "doc_analyst",
-        _as_graph_node(make_doc_analyst_node(models.doc_analyst)),
+        _as_graph_node(
+            "doc_analyst", make_doc_analyst_node(models.doc_analyst), tracer
+        ),
     )
     builder.add_node(
-        "prosecutor", _as_graph_node(make_prosecutor_node(models.prosecutor))
+        "prosecutor",
+        _as_graph_node("prosecutor", make_prosecutor_node(models.prosecutor), tracer),
     )
-    builder.add_node("defense", _as_graph_node(make_defense_node(models.defense)))
+    builder.add_node(
+        "defense", _as_graph_node("defense", make_defense_node(models.defense), tracer)
+    )
     builder.add_node(
         "tech_lead",
-        _as_graph_node(make_tech_lead_node(models.tech_lead)),
+        _as_graph_node("tech_lead", make_tech_lead_node(models.tech_lead), tracer),
     )
     builder.add_node(
         "chief_justice",
-        _as_graph_node(make_chief_justice_node(models.chief_justice)),
+        _as_graph_node(
+            "chief_justice",
+            make_chief_justice_node(models.chief_justice),
+            tracer,
+        ),
     )
 
     builder.add_edge(START, "repo_investigator")
@@ -97,6 +114,25 @@ def build_audit_graph(models: AuditGraphModels) -> Any:
     return builder.compile()
 
 
-def _as_graph_node(node: StateNode) -> RunnableLambda[AgentState, dict[str, object]]:
+def _as_graph_node(
+    node_name: str,
+    node: StateNode,
+    tracer: AuditTracer | None,
+) -> RunnableLambda[AgentState, dict[str, object]]:
     """Adapt agent node callables to LangGraph's node protocol typing."""
-    return RunnableLambda(node)
+
+    def wrapped(state: AgentState) -> dict[str, object]:
+        start = perf_counter()
+        if tracer is not None:
+            start = tracer.begin_node(node_name)
+        try:
+            result = cast(dict[str, object], node(state))
+            if tracer is not None:
+                tracer.end_node(node_name, result, start)
+            return result
+        except Exception as exc:
+            if tracer is not None:
+                tracer.fail_node(node_name, exc)
+            raise
+
+    return RunnableLambda(wrapped)

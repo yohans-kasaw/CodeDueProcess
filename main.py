@@ -1,13 +1,5 @@
-"""CodeDueProcess entry point.
+"""CodeDueProcess entry point with interactive prompts and rich tracing."""
 
-Orchestrates the audit process:
-1. Clones the repo
-2. Loads the rubric
-3. Runs the agent graph
-4. Outputs the report
-"""
-
-import argparse
 import os
 import subprocess
 import sys
@@ -21,8 +13,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
+from codedueprocess.cli.prompts import prompt_for_run_inputs
 from codedueprocess.graph import AuditGraphModels, build_audit_graph
-from codedueprocess.schemas.models import Rubric
+from codedueprocess.printing.events import AuditLayer
+from codedueprocess.printing.tracer import AuditTracer
+from codedueprocess.schemas.models import AuditReport, Rubric
 
 # Load environment variables
 load_dotenv()
@@ -30,7 +25,6 @@ load_dotenv()
 
 def safe_git_clone(url: str, dest_path: str) -> None:
     """Clones a git repository safely to a destination."""
-    print(f"Cloning {url} to {dest_path}...")
     try:
         subprocess.run(
             ["git", "clone", url, "."], cwd=dest_path, check=True, capture_output=True
@@ -63,16 +57,15 @@ def find_report_path(repo_path: str, provided_path: str | None) -> str:
                 candidates.append(os.path.join(root, file))
 
     if not candidates:
-        print("Error: No report document found. Please provide --report-path.")
+        print("Error: No report document found. Please provide report path.")
         sys.exit(1)
 
     # Pick the best candidate (e.g., shortest path = closest to root)
     candidates.sort(key=lambda x: len(x))
-    print(f"Auto-detected report document: {candidates[0]}")
     return candidates[0]
 
 
-def get_llm(provider: str, model_name: str) -> BaseChatModel:
+def get_llm(provider: str, model_name: str | None) -> BaseChatModel:
     """Factory for LLM initialization."""
     if provider == "openai":
         # Check for OpenRouter configuration
@@ -100,7 +93,7 @@ def get_llm(provider: str, model_name: str) -> BaseChatModel:
         return cast(
             BaseChatModel,
             ChatGoogleGenerativeAI(
-                model=model_name or "gemini-1.5-pro",
+                model=model_name or "gemini-2.5-flash",
                 google_api_key=api_key,
                 temperature=0,
             ),
@@ -111,78 +104,65 @@ def get_llm(provider: str, model_name: str) -> BaseChatModel:
 
 
 def main() -> None:
-    """Parse CLI arguments and run the end-to-end audit workflow."""
-    parser = argparse.ArgumentParser(
-        description="CodeDueProcess: AI-powered Code Audit System"
-    )
-    parser.add_argument("repo_url", help="URL of the GitHub repository to audit")
-    parser.add_argument(
-        "--report-path", help="Path to the audit report markdown file (optional)"
-    )
-    parser.add_argument(
-        "--provider",
-        default="openai",
-        choices=["openai", "gemini"],
-        help="LLM provider",
-    )
-    parser.add_argument(
-        "--model", help="Specific model name (e.g., openai/gpt-4o, gemini-1.5-pro)"
-    )
-    parser.add_argument(
-        "--rubric", default="docs/week_2_rubric.yaml", help="Path to rubric YAML"
-    )
-
-    args = parser.parse_args()
+    """Prompt user and run the end-to-end audit workflow."""
+    tracer = AuditTracer()
+    user_inputs = prompt_for_run_inputs(default_rubric_path="docs/sample_rubric.yaml")
+    tracer.audit_started(user_inputs.repo_url)
 
     # 1. Initialize LLM
-    print(f"Initializing {args.provider} LLM ({args.model or 'default'})...")
-    llm = get_llm(args.provider, args.model)
+    tracer.layer_started(AuditLayer.INGESTION)
+    tracer.info(AuditLayer.INGESTION, "LLM", "Initializing model provider...")
+    llm = get_llm(user_inputs.provider, user_inputs.model)
+    tracer.success(AuditLayer.INGESTION, "LLM", "Model ready")
 
     # 2. Load Rubric
-    print(f"Loading rubric from {args.rubric}...")
+    tracer.info(AuditLayer.INGESTION, "Rubric", f"Loading {user_inputs.rubric_path}")
     try:
-        with open(args.rubric) as f:
+        with open(user_inputs.rubric_path) as f:
             rubric_data = yaml.safe_load(f)
-            # The YAML structure might be nested or flat, we need to adapt to Schema
-            # Assuming the YAML *is* the Rubric model structure
             rubric = Rubric.model_validate(rubric_data)
     except FileNotFoundError:
-        print(f"Error: Rubric file '{args.rubric}' not found.")
+        tracer.failure(
+            AuditLayer.INGESTION,
+            "Rubric",
+            f"Rubric file '{user_inputs.rubric_path}' not found",
+        )
         sys.exit(1)
     except Exception as e:
-        print(f"Error parsing rubric: {e}")
-        # Fallback/Debug: just print structure
-        # sys.exit(1)
-        # For now, let's assume we proceed or fail gracefully.
-        # Ideally we should strict fail, but if the YAML format differs from
-        # the Pydantic model, this provides a clearer failure reason.
-        print(
-            "Warning: Rubric validation failed. "
-            "Proceeding with raw data structure if possible "
-            "(Graph expects list[Dimension])."
-        )
-        # Creating a dummy rubric object or crashing?
-        # Let's crash for safety as the graph needs rubric dimensions
+        tracer.failure(AuditLayer.INGESTION, "Rubric", f"Error parsing rubric: {e}")
         raise e
+    tracer.success(AuditLayer.INGESTION, "Rubric", "Rubric loaded")
 
     # 3. Execution Context
     with tempfile.TemporaryDirectory() as temp_dir:
         # Clone Repo
-        safe_git_clone(args.repo_url, temp_dir)
+        tracer.info(AuditLayer.INGESTION, "Cloner", "Cloning repository...")
+        with tracer.live_status(
+            AuditLayer.INGESTION, "Cloner", "Cloning repository..."
+        ):
+            safe_git_clone(user_inputs.repo_url, temp_dir)
+        file_count = sum(len(files) for _, _, files in os.walk(temp_dir))
+        tracer.success(
+            AuditLayer.INGESTION,
+            "Cloner",
+            f"Repository cloned successfully ({file_count} files)",
+        )
 
         # Resolve Report
-        report_file = find_report_path(temp_dir, args.report_path)
+        tracer.info(AuditLayer.INGESTION, "ReportResolver", "Resolving report file...")
+        report_file = find_report_path(temp_dir, user_inputs.report_path)
+        tracer.success(AuditLayer.INGESTION, "ReportResolver", f"Using {report_file}")
 
         # 4. Build Graph
-        print("Building agent graph...")
-        # Use single LLM for all roles for simplicity, or split if needed
+        tracer.info(AuditLayer.INGESTION, "Graph", "Building agent graph...")
         model_config = AuditGraphModels.from_single(llm)
-        graph = build_audit_graph(model_config)
+        graph = build_audit_graph(model_config, tracer=tracer)
+        tracer.success(AuditLayer.INGESTION, "Graph", "Graph ready")
 
         # 5. Run Audit
-        print("Starting audit execution...")
+        tracer.info(AuditLayer.JUDGES, "Panel Deliberation", "Active")
         initial_state = {
-            "repo_url": args.repo_url,
+            "repo_url": user_inputs.repo_url,
             "repo_path": temp_dir,
             "doc_path": report_file,
             "rubric_dimensions": rubric.dimensions,
@@ -191,18 +171,33 @@ def main() -> None:
         }
 
         # Invoke graph
-        result = graph.invoke(initial_state)
+        with tracer.live_status(
+            AuditLayer.DETECTIVES, "AuditGraph", "Executing layers"
+        ):
+            result = graph.invoke(initial_state)
 
         # 6. Output Report
-        print("\n" + "=" * 50)
-        print("AUDIT COMPLETE")
-        print("=" * 50)
-
         final_report = result.get("final_report")
         if final_report:
-            print(final_report.model_dump_json(indent=2))
+            output_path = write_audit_report(final_report)
+            tracer.chief_summary(final_report, output_path)
         else:
-            print("Error: No final report generated.")
+            tracer.failure(
+                AuditLayer.CHIEF, "Chief Justice", "No final report generated"
+            )
+
+
+def write_audit_report(final_report: AuditReport) -> str:
+    """Persist the final audit report to output/audit_report.md."""
+    output_dir = os.path.join(os.getcwd(), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "audit_report.md")
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write("# Audit Report\n\n")
+        file.write("```json\n")
+        file.write(final_report.model_dump_json(indent=2))
+        file.write("\n```\n")
+    return output_path
 
 
 if __name__ == "__main__":
