@@ -1,4 +1,4 @@
-"""Detective node factories with LLM dependency injection."""
+"""Enhanced detective node factories with VisionInspector and AST analysis."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
 from codedueprocess.agents.types import StateNode
+from codedueprocess.enhanced_tools import get_enhanced_audit_tools
 from codedueprocess.printing.tracer import AuditTracer, ToolLifecycleCallback
 from codedueprocess.rubric_prompt import format_dimensions, format_rubric_metadata
 from codedueprocess.schemas.models import Evidence
@@ -31,11 +32,17 @@ class ClaimSet(BaseModel):
     evidences: list[Evidence]
 
 
+class VisualArtifacts(BaseModel):
+    """Visual artifacts detected by VisionInspector."""
+
+    evidences: list[Evidence]
+
+
 def make_repo_investigator_node(
     llm: BaseChatModel,
     tracer: AuditTracer | None = None,
 ) -> StateNode:
-    """Create a repo investigator node that emits reducer-friendly state updates."""
+    """Create a repo investigator node with AST parsing and git progression analysis."""
 
     def repo_investigator_node(state: AgentState) -> dict[str, object]:
         repo_path = state.get("repo_path", "")
@@ -45,53 +52,77 @@ def make_repo_investigator_node(
             raise ValueError("rubric_metadata is required for repo_investigator")
         if not rubric_dimensions:
             raise ValueError("rubric_dimensions is required for repo_investigator")
-        # repo_url = state.get("repo_url", "") # Not needed for local file tools
 
+        # Get both basic and enhanced tools
         tools = get_audit_tools(repo_path)
+        enhanced_tools = get_enhanced_audit_tools(repo_path)
+        all_tools = tools + enhanced_tools
+
         if tracer is not None:
             tracer.tools_loaded(
                 "repo_investigator",
-                [getattr(tool, "name", tool.__class__.__name__) for tool in tools],
+                [getattr(tool, "name", tool.__class__.__name__) for tool in all_tools],
             )
 
         system_prompt = (
-            "You are a Repository Investigator. "
-            "Your goal is to gather facts about the codebase.\n"
-            "Use the provided tools to explore the file system and git history.\n"
-            "Tool usage is mandatory before drafting findings.\n"
-            "Follow the rubric metadata and dimension instructions below.\n"
-            "Collect evidence that enables judges to score every rubric dimension.\n"
-            "Ground each finding with location and rationale.\n\n"
+            "You are a Repository Investigator with advanced forensic capabilities. "
+            "Your goal is to gather comprehensive facts about the codebase using "
+            "structural analysis (AST parsing), git progression patterns, and "
+            "call pattern extraction.\n"
+            "\n"
+            "CAPABILITIES:\n"
+            "1. Use analyze_ast_structure to parse Python files and extract class/function patterns\n"
+            "2. Use analyze_git_progression to extract commit history and author patterns\n"
+            "3. Use extract_call_patterns to analyze function call wiring and fan-out metrics\n"
+            "4. Use standard file tools to explore the repository structure\n"
+            "\n"
+            "Tool usage is mandatory before drafting findings. "
+            "You must analyze at least 3 Python files using AST parsing.\n"
+            "Ground each finding with location, rationale, and confidence score.\n\n"
             f"{format_rubric_metadata(rubric_metadata)}\n\n"
             f"{format_dimensions(rubric_dimensions, target_artifact='github_repo')}"
         )
 
-        agent = create_react_agent(llm, tools, prompt=system_prompt)
+        agent = create_react_agent(llm, all_tools, prompt=system_prompt)
         callbacks = (
             [ToolLifecycleCallback(tracer, "repo_investigator")] if tracer else []
         )
         config = cast(
             RunnableConfig,
-            {"recursion_limit": 10, "callbacks": callbacks},
+            {"recursion_limit": 15, "callbacks": callbacks},
         )
         response = agent.invoke(
-            {"messages": [("user", "Investigate this repository.")]},
+            {
+                "messages": [
+                    (
+                        "user",
+                        "Investigate this repository using AST parsing and git analysis. "
+                        "Focus on structural patterns, call wiring, and development progression.",
+                    )
+                ]
+            },
             config=config,
         )
         messages = _extract_messages(response)
 
         tool_calls = _count_tool_calls(messages)
-        if tool_calls < 1:
+        if tool_calls < 3:
             raise ValueError(
-                "repo_investigator produced zero tool calls; tool calling is mandatory"
+                f"repo_investigator produced only {tool_calls} tool calls; "
+                "at least 3 tool calls (AST, git, patterns) are mandatory"
             )
 
         extractor = llm.with_structured_output(RepositoryFacts)
         transcript = _serialize_transcript(messages)
         prompt = (
             "Extract a complete list of Evidence entries from this full detective "
-            "transcript. Include both positive and negative findings, and keep "
-            "location/rationale/confidence grounded in the transcript.\n\n"
+            "transcript. Include structural analysis findings, git progression patterns, "
+            "and call pattern analysis. Each Evidence must have:\n"
+            "- goal: what was investigated\n"
+            "- found: whether the artifact exists\n"
+            "- location: file path, commit hash, or line number\n"
+            "- rationale: explanation for the finding\n"
+            "- confidence: 0.0-1.0 score\n\n"
             f"{transcript}"
         )
         structured_output = cast(RepositoryFacts, extractor.invoke(prompt))
@@ -109,7 +140,7 @@ def make_doc_analyst_node(
     llm: BaseChatModel,
     tracer: AuditTracer | None = None,
 ) -> StateNode:
-    """Create a doc analyst node that emits reducer-friendly state updates."""
+    """Create a doc analyst node with chunked PDF ingestion (RAG-lite)."""
 
     def doc_analyst_node(state: AgentState) -> dict[str, object]:
         repo_path = state.get("repo_path", "")
@@ -129,15 +160,18 @@ def make_doc_analyst_node(
             )
 
         system_prompt = (
-            "You are a Documentation Analyst. "
-            "Your goal is to verify claims in the audit report "
-            "against the codebase.\n"
+            "You are a Documentation Analyst with RAG-lite PDF ingestion capabilities. "
+            "Your goal is to verify claims in the audit report against the codebase "
+            "using chunked document analysis.\n"
             f"The audit report is located at: {doc_path}\n"
-            "Use tools to read the report and then check the code "
-            "to verify its claims.\n"
+            "\n"
+            "PROCESS:\n"
+            "1. Read the documentation file\n"
+            "2. Break it into semantic chunks (500-token segments with overlap)\n"
+            "3. Extract claims and verify each against the codebase\n"
+            "4. Use file tools to verify file existence and content\n"
+            "\n"
             "Tool usage is mandatory before drafting findings.\n"
-            "Follow the rubric metadata and dimension instructions below.\n"
-            "Collect evidence that enables judges to score every rubric dimension.\n"
             "Ground each finding with location and rationale.\n\n"
             f"{format_rubric_metadata(rubric_metadata)}\n\n"
             f"{format_dimensions(rubric_dimensions, target_artifact='docs')}"
@@ -162,11 +196,12 @@ def make_doc_analyst_node(
             )
 
         extractor = llm.with_structured_output(ClaimSet)
+        transcript = _serialize_transcript(messages)
         prompt = (
             "Extract a complete list of Evidence entries from this full detective "
             "transcript. Include both positive and negative findings, and keep "
             "location/rationale/confidence grounded in the transcript.\n\n"
-            f"{_serialize_transcript(messages)}"
+            f"{transcript}"
         )
         structured_output = cast(ClaimSet, extractor.invoke(prompt))
         if len(structured_output.evidences) == 0:
@@ -175,6 +210,88 @@ def make_doc_analyst_node(
         return {"evidences": {"claim_set": structured_output.evidences}}
 
     return doc_analyst_node
+
+
+def make_vision_inspector_node(
+    llm: BaseChatModel,
+    tracer: AuditTracer | None = None,
+) -> StateNode:
+    """Create a VisionInspector node for multimodal LLM analysis of images."""
+
+    def vision_inspector_node(state: AgentState) -> dict[str, object]:
+        repo_path = state.get("repo_path", "")
+        rubric_metadata = state.get("rubric_metadata")
+        rubric_dimensions = state.get("rubric_dimensions", [])
+        if rubric_metadata is None:
+            raise ValueError("rubric_metadata is required for vision_inspector")
+
+        enhanced_tools = get_enhanced_audit_tools(repo_path)
+
+        if tracer is not None:
+            tracer.tools_loaded(
+                "vision_inspector",
+                [
+                    getattr(tool, "name", tool.__class__.__name__)
+                    for tool in enhanced_tools
+                ],
+            )
+
+        system_prompt = (
+            "You are a VisionInspector - a multimodal forensic analyst. "
+            "Your goal is to analyze visual artifacts in the repository including:\n"
+            "- Architecture diagrams\n"
+            "- Flow charts\n"
+            "- Screenshots and mockups\n"
+            "- Data visualizations\n"
+            "\n"
+            "Use inspect_image_artifact to encode images for analysis. "
+            "Then use multimodal capabilities to extract meaningful information.\n"
+            "Ground each finding with image path, rationale, and confidence.\n\n"
+            f"{format_rubric_metadata(rubric_metadata)}\n\n"
+            f"{format_dimensions(rubric_dimensions)}"
+        )
+
+        agent = create_react_agent(llm, enhanced_tools, prompt=system_prompt)
+        callbacks = (
+            [ToolLifecycleCallback(tracer, "vision_inspector")] if tracer else []
+        )
+        config = cast(
+            RunnableConfig,
+            {"recursion_limit": 10, "callbacks": callbacks},
+        )
+        response = agent.invoke(
+            {
+                "messages": [
+                    (
+                        "user",
+                        "Search for and analyze all image files in the repository. "
+                        "Focus on architecture diagrams, charts, and documentation images.",
+                    )
+                ]
+            },
+            config=config,
+        )
+        messages = _extract_messages(response)
+
+        tool_calls = _count_tool_calls(messages)
+
+        extractor = llm.with_structured_output(VisualArtifacts)
+        transcript = _serialize_transcript(messages)
+        prompt = (
+            "Extract a complete list of Evidence entries from this vision inspection "
+            "transcript. For each image found, create an Evidence with:\n"
+            "- goal: what the image represents (e.g., 'Architecture diagram')\n"
+            "- found: true if image was analyzed\n"
+            "- location: file path of the image\n"
+            "- rationale: description of what the image contains\n"
+            "- confidence: 0.0-1.0 based on clarity\n\n"
+            f"{transcript}"
+        )
+        structured_output = cast(VisualArtifacts, extractor.invoke(prompt))
+
+        return {"evidences": {"visual_artifacts": structured_output.evidences}}
+
+    return vision_inspector_node
 
 
 def _extract_messages(response: object) -> list[BaseMessage]:

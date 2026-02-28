@@ -4,6 +4,7 @@ from codedueprocess.agents.chief import make_chief_justice_node
 from codedueprocess.agents.detectives import (
     make_doc_analyst_node,
     make_repo_investigator_node,
+    make_vision_inspector_node,
 )
 from codedueprocess.agents.judges import (
     build_judicial_opinion_chain,
@@ -23,6 +24,7 @@ __all__ = [
     "make_prosecutor_node",
     "make_repo_investigator_node",
     "make_tech_lead_node",
+    "make_vision_inspector_node",
     "StateNode",
     "StateUpdate",
 ]

@@ -1,4 +1,4 @@
-"""LangGraph wiring for the Digital Courtroom flow."""
+"""LangGraph wiring for the Digital Courtroom flow with aggregation and error handling."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from codedueprocess.agents import (
     make_prosecutor_node,
     make_repo_investigator_node,
     make_tech_lead_node,
+    make_vision_inspector_node,
 )
 from codedueprocess.agents.types import StateNode
 from codedueprocess.printing.tracer import AuditTracer
@@ -33,6 +34,7 @@ class AuditGraphModels:
 
     repo_investigator: BaseChatModel
     doc_analyst: BaseChatModel
+    vision_inspector: BaseChatModel
     prosecutor: BaseChatModel
     defense: BaseChatModel
     tech_lead: BaseChatModel
@@ -44,6 +46,7 @@ class AuditGraphModels:
         return cls(
             repo_investigator=llm,
             doc_analyst=llm,
+            vision_inspector=llm,
             prosecutor=llm,
             defense=llm,
             tech_lead=llm,
@@ -59,12 +62,70 @@ class AuditRuntimeContext(TypedDict):
     trace_id: NotRequired[str]
 
 
+def aggregate_evidence_node(state: AgentState) -> dict[str, object]:
+    """Aggregation node that syncs all evidence before judging.
+
+    This node ensures all detectives have completed and aggregates
+    their evidence into a unified catalog for the judges.
+    """
+    evidences = state.get("evidences", {})
+
+    # Count evidence from each detective
+    repo_facts = evidences.get("repository_facts", [])
+    claim_set = evidences.get("claim_set", [])
+    visual_artifacts = evidences.get("visual_artifacts", [])
+
+    total_evidence = len(repo_facts) + len(claim_set) + len(visual_artifacts)
+
+    if total_evidence == 0:
+        return {
+            "error": "No evidence collected. All detective nodes failed.",
+            "aggregation_status": "failed",
+        }
+
+    return {
+        "aggregation_status": "success",
+        "total_evidence": total_evidence,
+        "evidence_breakdown": {
+            "repository_facts": len(repo_facts),
+            "claim_set": len(claim_set),
+            "visual_artifacts": len(visual_artifacts),
+        },
+    }
+
+
+def check_detective_failure(state: AgentState) -> str:
+    """Conditional edge router to check if detective phase failed."""
+    status = state.get("aggregation_status", "")
+    if status == "failed":
+        return "error"
+    return "continue"
+
+
+def check_chief_failure(state: AgentState) -> str:
+    """Conditional edge router to check if chief justice synthesis failed."""
+    final_report = state.get("final_report")
+    if final_report is None:
+        return "error"
+    return "end"
+
+
+def error_node(state: AgentState) -> dict[str, object]:
+    """Error handling node that provides diagnostic information."""
+    error_msg = state.get("error", "Unknown error occurred")
+    return {"error": error_msg, "final_report": None}
+
+
 def build_audit_graph(
     models: AuditGraphModels, tracer: AuditTracer | None = None
 ) -> Any:
-    """Build the parallel detective -> judge -> chief justice topology."""
+    """Build the parallel detective -> aggregation -> judge -> chief justice topology.
+
+    Flow: START -> Detectives (Parallel) -> Aggregation -> Judges (Parallel) -> Chief Justice -> END
+    """
     builder = StateGraph(AgentState, context_schema=AuditRuntimeContext)
 
+    # Detective nodes - parallel fan-out
     builder.add_node(
         "repo_investigator",
         _as_graph_node(
@@ -82,6 +143,22 @@ def build_audit_graph(
         ),
     )
     builder.add_node(
+        "vision_inspector",
+        _as_graph_node(
+            "vision_inspector",
+            make_vision_inspector_node(models.vision_inspector, tracer=tracer),
+            tracer,
+        ),
+    )
+
+    # Aggregation node - synchronizes evidence before judging
+    builder.add_node(
+        "aggregate_evidence",
+        _as_graph_node("aggregate_evidence", aggregate_evidence_node, tracer),
+    )
+
+    # Judge nodes - parallel fan-out
+    builder.add_node(
         "prosecutor",
         _as_graph_node("prosecutor", make_prosecutor_node(models.prosecutor), tracer),
     )
@@ -92,6 +169,8 @@ def build_audit_graph(
         "tech_lead",
         _as_graph_node("tech_lead", make_tech_lead_node(models.tech_lead), tracer),
     )
+
+    # Chief Justice and Error nodes
     builder.add_node(
         "chief_justice",
         _as_graph_node(
@@ -100,22 +179,52 @@ def build_audit_graph(
             tracer,
         ),
     )
+    builder.add_node(
+        "error_handler",
+        _as_graph_node("error_handler", error_node, tracer),
+    )
 
+    # Phase 1: Parallel detectives from START
     builder.add_edge(START, "repo_investigator")
     builder.add_edge(START, "doc_analyst")
+    builder.add_edge(START, "vision_inspector")
 
-    builder.add_edge("repo_investigator", "prosecutor")
-    builder.add_edge("repo_investigator", "defense")
-    builder.add_edge("repo_investigator", "tech_lead")
-    builder.add_edge("doc_analyst", "prosecutor")
-    builder.add_edge("doc_analyst", "defense")
-    builder.add_edge("doc_analyst", "tech_lead")
+    # Phase 2: All detectives feed into aggregation
+    builder.add_edge("repo_investigator", "aggregate_evidence")
+    builder.add_edge("doc_analyst", "aggregate_evidence")
+    builder.add_edge("vision_inspector", "aggregate_evidence")
 
+    # Phase 3: Conditional routing from aggregation
+    builder.add_conditional_edges(
+        "aggregate_evidence",
+        check_detective_failure,
+        {
+            "continue": "prosecutor",
+            "error": "error_handler",
+        },
+    )
+
+    # Phase 4: Parallel judges from aggregation (on success)
+    builder.add_edge("aggregate_evidence", "prosecutor")
+    builder.add_edge("aggregate_evidence", "defense")
+    builder.add_edge("aggregate_evidence", "tech_lead")
+
+    # Phase 5: All judges feed into chief justice
     builder.add_edge("prosecutor", "chief_justice")
     builder.add_edge("defense", "chief_justice")
     builder.add_edge("tech_lead", "chief_justice")
 
-    builder.add_edge("chief_justice", END)
+    # Phase 6: Error handling and END
+    builder.add_conditional_edges(
+        "chief_justice",
+        check_chief_failure,
+        {
+            "end": END,
+            "error": "error_handler",
+        },
+    )
+    builder.add_edge("error_handler", END)
+
     return builder.compile()
 
 

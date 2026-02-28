@@ -1,4 +1,4 @@
-"""Judge node factories with BaseChatModel dependency injection."""
+"""Judge node factories with distinct personas, structured output, and retry logic."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
+from pydantic import ValidationError
 
 from codedueprocess.agents.types import StateNode
 from codedueprocess.rubric_prompt import (
@@ -17,6 +18,60 @@ from codedueprocess.schemas.models import Evidence, JudgeDeliberation
 from codedueprocess.state import AgentState
 
 
+# Persona-specific prompt templates
+PROSECUTOR_PERSONA = """
+You are the Prosecutor - an adversarial, critical code reviewer.
+Your philosophy: "Code is guilty until proven innocent."
+
+EVALUATION PRINCIPLES:
+- Be harsh and skeptical of all code claims
+- Question every design decision aggressively
+- Focus on security vulnerabilities, edge cases, and failure modes
+- Demand explicit evidence for every positive claim
+- Penalize missing documentation, tests, or error handling
+- Look for technical debt, shortcuts, and anti-patterns
+- Never give the benefit of the doubt
+
+When scoring, default to lower scores unless compelling evidence proves quality.
+Cite specific evidence references to support your adversarial position.
+"""
+
+DEFENSE_PERSONA = """
+You are the Defense Attorney - a pragmatic, intent-focused code advocate.
+Your philosophy: "Code should be evaluated by its intent and context."
+
+EVALUATION PRINCIPLES:
+- Consider the practical constraints and deadlines the developers faced
+- Give credit for good architectural intentions even if imperfectly executed
+- Focus on whether the code solves the stated problem effectively
+- Be forgiving of minor style issues if functionality is sound
+- Value working solutions over perfect abstractions
+- Consider maintainability and readability for future developers
+- Look for pragmatic trade-offs that make sense
+
+When scoring, consider the overall value delivered and the developer's context.
+Cite specific evidence showing the code meets its intended goals.
+"""
+
+TECH_LEAD_PERSONA = """
+You are the Tech Lead - an architectural soundness evaluator.
+Your philosophy: "Code must be scalable, maintainable, and well-architected."
+
+EVALUATION PRINCIPLES:
+- Evaluate architectural patterns and design decisions
+- Check for proper separation of concerns and modularity
+- Assess test coverage and quality assurance practices
+- Review API design for consistency and clarity
+- Look for proper error handling and logging
+- Evaluate performance considerations and scalability
+- Check for code reuse and DRY principles
+- Assess documentation quality and completeness
+
+When scoring, prioritize architectural soundness over minor implementation details.
+Cite specific evidence about code structure, patterns, and maintainability.
+"""
+
+
 def build_judicial_opinion_chain(
     llm: BaseChatModel,
 ) -> Runnable[Any, Any]:
@@ -24,12 +79,21 @@ def build_judicial_opinion_chain(
     return llm.with_structured_output(JudgeDeliberation)
 
 
-def make_judge_node(
+def make_judge_node_with_retry(
     llm: BaseChatModel,
     judge: Literal["Prosecutor", "Defense", "TechLead"],
+    max_retries: int = 3,
 ) -> StateNode:
-    """Create a single judge node that appends a `JudicialOpinion` to state."""
+    """Create a single judge node with persona prompts and retry logic."""
     chain = build_judicial_opinion_chain(llm)
+
+    # Select persona prompt
+    if judge == "Prosecutor":
+        persona_prompt = PROSECUTOR_PERSONA
+    elif judge == "Defense":
+        persona_prompt = DEFENSE_PERSONA
+    else:
+        persona_prompt = TECH_LEAD_PERSONA
 
     def judge_node(state: AgentState) -> dict[str, object]:
         rubric_metadata = state.get("rubric_metadata")
@@ -54,7 +118,8 @@ def make_judge_node(
         )
 
         prompt = (
-            f"Judge role: {judge}\n"
+            f"{persona_prompt}\n\n"
+            f"Your role: {judge}\n"
             "You must score every rubric dimension, with one JudicialOpinion "
             "per dimension, and set criterion_id exactly to dimension id.\n"
             "You must base your opinions only on the evidence list below. "
@@ -65,7 +130,27 @@ def make_judge_node(
             f"Evidence list:\n{evidence_catalog}\n\n"
             "Return JudgeDeliberation with opinions covering all dimensions."
         )
-        deliberation = JudgeDeliberation.model_validate(chain.invoke(prompt))
+
+        # Retry logic for validation
+        deliberation: JudgeDeliberation | None = None
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                deliberation = JudgeDeliberation.model_validate(chain.invoke(prompt))
+                break
+            except ValidationError as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    # Enhance prompt with error feedback
+                    prompt += f"\n\nPrevious attempt failed validation: {e}. Please ensure all required fields are present and valid."
+                    continue
+                raise ValueError(
+                    f"{judge} failed validation after {max_retries} attempts: {e}"
+                )
+
+        if deliberation is None:
+            raise ValueError(f"{judge} failed to produce valid deliberation")
+
         if not deliberation.opinions:
             raise ValueError(f"{judge} returned no opinions")
 
@@ -111,19 +196,27 @@ def make_judge_node(
     return judge_node
 
 
+def make_judge_node(
+    llm: BaseChatModel,
+    judge: Literal["Prosecutor", "Defense", "TechLead"],
+) -> StateNode:
+    """Create a single judge node (legacy wrapper for compatibility)."""
+    return make_judge_node_with_retry(llm, judge, max_retries=3)
+
+
 def make_prosecutor_node(llm: BaseChatModel) -> StateNode:
-    """Create the Prosecutor judge node."""
-    return make_judge_node(llm, "Prosecutor")
+    """Create the Prosecutor judge node with adversarial persona."""
+    return make_judge_node_with_retry(llm, "Prosecutor")
 
 
 def make_defense_node(llm: BaseChatModel) -> StateNode:
-    """Create the Defense judge node."""
-    return make_judge_node(llm, "Defense")
+    """Create the Defense judge node with pragmatic persona."""
+    return make_judge_node_with_retry(llm, "Defense")
 
 
 def make_tech_lead_node(llm: BaseChatModel) -> StateNode:
-    """Create the TechLead judge node."""
-    return make_judge_node(llm, "TechLead")
+    """Create the TechLead judge node with architectural focus."""
+    return make_judge_node_with_retry(llm, "TechLead")
 
 
 def _flatten_evidence(
