@@ -20,7 +20,12 @@ from langchain_core.runnables import RunnableLambda
 from langchain_litellm import ChatLiteLLM
 
 from codedueprocess.graph import AuditGraphModels, run_audit
-from codedueprocess.schemas.models import AuditReport, Dimension
+from codedueprocess.schemas.models import (
+    AuditReport,
+    Dimension,
+    RubricMetadata,
+    SynthesisRules,
+)
 from codedueprocess.state import AgentState
 
 
@@ -96,6 +101,28 @@ def _default_dimension() -> Dimension:
     )
 
 
+def _default_rubric_metadata() -> RubricMetadata:
+    return RubricMetadata(
+        rubric_name="Default CLI Rubric",
+        grading_target="Repository and docs",
+        version="1.0",
+    )
+
+
+def _default_synthesis_rules() -> SynthesisRules:
+    return SynthesisRules(
+        security_override="Security findings take precedence over cosmetic wins.",
+        fact_supremacy="Prefer evidence-backed claims when judges disagree.",
+        functionality_weight="Functionality and correctness outweigh style concerns.",
+        dissent_requirement=(
+            "Record dissent when judge score variance exceeds two points."
+        ),
+        variance_re_evaluation=(
+            "Re-evaluate criteria with high score variance before finalizing."
+        ),
+    )
+
+
 def _initial_state(
     args: argparse.Namespace,
     *,
@@ -108,6 +135,8 @@ def _initial_state(
             "repo_url": repo_url,
             "repo_path": repo_path,
             "doc_path": args.docs_path,
+            "rubric_metadata": _default_rubric_metadata(),
+            "synthesis_rules": _default_synthesis_rules(),
             "rubric_dimensions": [_default_dimension()],
             "evidences": {},
             "opinions": [],
@@ -130,19 +159,19 @@ def _mock_models() -> AuditGraphModels:
         '"confidence":0.88}]}'
     )
     prosecutor_payload = (
-        '{"judge":"Prosecutor","criterion_id":"git_history","score":4,'
-        '"argument":"Commit history shows deliberate progress.",'
-        '"cited_evidence":["repository_facts:1", "claim_set:1"]}'
+        '{"opinions":[{"judge":"Prosecutor","criterion_id":"git_history",'
+        '"score":4,"argument":"Commit history shows deliberate progress.",'
+        '"cited_evidence":["repository_facts:1", "claim_set:1"]}]}'
     )
     defense_payload = (
-        '{"judge":"Defense","criterion_id":"git_history","score":3,'
-        '"argument":"Repository demonstrates partial requirement coverage.",'
-        '"cited_evidence":["repository_facts:1"]}'
+        '{"opinions":[{"judge":"Defense","criterion_id":"git_history",'
+        '"score":3,"argument":"Repository demonstrates partial requirement coverage.",'
+        '"cited_evidence":["repository_facts:1"]}]}'
     )
     techlead_payload = (
-        '{"judge":"TechLead","criterion_id":"git_history","score":4,'
-        '"argument":"Architecture is maintainable with minor caveats.",'
-        '"cited_evidence":["repository_facts:1", "claim_set:1"]}'
+        '{"opinions":[{"judge":"TechLead","criterion_id":"git_history",'
+        '"score":4,"argument":"Architecture is maintainable with minor caveats.",'
+        '"cited_evidence":["repository_facts:1", "claim_set:1"]}]}'
     )
     report_payload = (
         '{"repo_url":"https://github.com/example/repo",'

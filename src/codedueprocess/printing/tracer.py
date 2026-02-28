@@ -24,9 +24,16 @@ from codedueprocess.printing.renderers import (
     render_audit_start,
     render_chief_summary,
     render_layer_header,
+    render_rubric_details,
     render_trace_event,
 )
-from codedueprocess.schemas.models import Evidence, JudicialOpinion
+from codedueprocess.schemas.models import (
+    Dimension,
+    Evidence,
+    JudicialOpinion,
+    RubricMetadata,
+    SynthesisRules,
+)
 
 
 class AuditTracer:
@@ -47,6 +54,16 @@ class AuditTracer:
             return
         render_layer_header(self._console, layer, LAYER_META[layer])
         self._rendered_layers.add(layer)
+
+    def rubric_details(
+        self,
+        metadata: RubricMetadata,
+        dimensions: list[Dimension],
+        synthesis_rules: SynthesisRules,
+    ) -> None:
+        """Render detailed rubric context for current run."""
+        self.layer_started(AuditLayer.INGESTION)
+        render_rubric_details(self._console, metadata, dimensions, synthesis_rules)
 
     def info(
         self,
@@ -164,26 +181,24 @@ class AuditTracer:
         if node_name in {"prosecutor", "defense", "tech_lead"}:
             opinions = update.get("opinions", [])
             if isinstance(opinions, list) and opinions:
-                opinion = opinions[-1]
-                if isinstance(opinion, JudicialOpinion):
-                    branch = (
-                        EventBranch.END if node_name == "tech_lead" else EventBranch.MID
-                    )
-                    self.success(
+                judge_opinions = [
+                    opinion
+                    for opinion in opinions
+                    if isinstance(opinion, JudicialOpinion)
+                    and _node_to_judge(node_name) == opinion.judge
+                ]
+                for opinion in judge_opinions:
+                    self.info(
                         meta.layer,
                         opinion.judge,
-                        (
-                            f"Score {opinion.score}/5 - "
-                            f'"{opinion.argument}" {duration_msg}'
-                        ),
-                        branch=branch,
+                        (f"Dimension {opinion.criterion_id}: Score {opinion.score}/5"),
+                        branch=EventBranch.MID,
                     )
-                else:
-                    self.success(
-                        meta.layer,
-                        meta.display_name,
-                        f"Opinion submitted {duration_msg}",
-                    )
+                self.success(
+                    meta.layer,
+                    meta.display_name,
+                    f"Scored {len(judge_opinions)} dimensions {duration_msg}",
+                )
             else:
                 self.success(
                     meta.layer, meta.display_name, f"Opinion submitted {duration_msg}"
@@ -315,3 +330,13 @@ class ToolLifecycleCallback(BaseCallbackHandler):
             branch=EventBranch.MID,
         )
         return None
+
+
+def _node_to_judge(node_name: str) -> str:
+    if node_name == "prosecutor":
+        return "Prosecutor"
+    if node_name == "defense":
+        return "Defense"
+    if node_name == "tech_lead":
+        return "TechLead"
+    return ""

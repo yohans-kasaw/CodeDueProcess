@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from codedueprocess.agents.types import StateNode
 from codedueprocess.printing.tracer import AuditTracer, ToolLifecycleCallback
+from codedueprocess.rubric_prompt import format_dimensions, format_rubric_metadata
 from codedueprocess.schemas.models import Evidence
 from codedueprocess.state import AgentState
 from codedueprocess.tools.setup import get_audit_tools
@@ -38,6 +39,12 @@ def make_repo_investigator_node(
 
     def repo_investigator_node(state: AgentState) -> dict[str, object]:
         repo_path = state.get("repo_path", "")
+        rubric_metadata = state.get("rubric_metadata")
+        rubric_dimensions = state.get("rubric_dimensions", [])
+        if rubric_metadata is None:
+            raise ValueError("rubric_metadata is required for repo_investigator")
+        if not rubric_dimensions:
+            raise ValueError("rubric_dimensions is required for repo_investigator")
         # repo_url = state.get("repo_url", "") # Not needed for local file tools
 
         tools = get_audit_tools(repo_path)
@@ -52,11 +59,11 @@ def make_repo_investigator_node(
             "Your goal is to gather facts about the codebase.\n"
             "Use the provided tools to explore the file system and git history.\n"
             "Tool usage is mandatory before drafting findings.\n"
-            "Focus on:\n"
-            "- Git commit patterns (frequency, messages, authors)\n"
-            "- File structure and key configuration files\n"
-            "- Presence of tests and documentation\n"
-            "Ground each finding with location and rationale."
+            "Follow the rubric metadata and dimension instructions below.\n"
+            "Collect evidence that enables judges to score every rubric dimension.\n"
+            "Ground each finding with location and rationale.\n\n"
+            f"{format_rubric_metadata(rubric_metadata)}\n\n"
+            f"{format_dimensions(rubric_dimensions, target_artifact='github_repo')}"
         )
 
         agent = create_react_agent(llm, tools, prompt=system_prompt)
@@ -107,6 +114,12 @@ def make_doc_analyst_node(
     def doc_analyst_node(state: AgentState) -> dict[str, object]:
         repo_path = state.get("repo_path", "")
         doc_path = state.get("doc_path", "")
+        rubric_metadata = state.get("rubric_metadata")
+        rubric_dimensions = state.get("rubric_dimensions", [])
+        if rubric_metadata is None:
+            raise ValueError("rubric_metadata is required for doc_analyst")
+        if not rubric_dimensions:
+            raise ValueError("rubric_dimensions is required for doc_analyst")
 
         tools = get_audit_tools(repo_path)
         if tracer is not None:
@@ -123,10 +136,11 @@ def make_doc_analyst_node(
             "Use tools to read the report and then check the code "
             "to verify its claims.\n"
             "Tool usage is mandatory before drafting findings.\n"
-            "Focus on:\n"
-            "- Accuracy of architectural descriptions\n"
-            "- Verification of cited features\n"
-            "Ground each finding with location and rationale."
+            "Follow the rubric metadata and dimension instructions below.\n"
+            "Collect evidence that enables judges to score every rubric dimension.\n"
+            "Ground each finding with location and rationale.\n\n"
+            f"{format_rubric_metadata(rubric_metadata)}\n\n"
+            f"{format_dimensions(rubric_dimensions, target_artifact='docs')}"
         )
 
         agent = create_react_agent(llm, tools, prompt=system_prompt)

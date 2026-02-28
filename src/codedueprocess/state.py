@@ -10,6 +10,8 @@ from codedueprocess.schemas.models import (
     Dimension,
     Evidence,
     JudicialOpinion,
+    RubricMetadata,
+    SynthesisRules,
 )
 
 
@@ -34,6 +36,8 @@ class AgentState(TypedDict):
     repo_url: str
     repo_path: str
     doc_path: str
+    rubric_metadata: RubricMetadata
+    synthesis_rules: SynthesisRules
     # The Rubric dimensions to be evaluated
     rubric_dimensions: list[Dimension]
 

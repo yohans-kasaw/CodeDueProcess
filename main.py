@@ -140,6 +140,11 @@ def main() -> None:
         tracer.failure(AuditLayer.INGESTION, "Rubric", f"Error parsing rubric: {e}")
         raise e
     tracer.success(AuditLayer.INGESTION, "Rubric", "Rubric loaded")
+    tracer.rubric_details(
+        rubric.rubric_metadata,
+        rubric.dimensions,
+        rubric.synthesis_rules,
+    )
 
     # 3. Execution Context
     with ExitStack() as stack:
@@ -189,6 +194,8 @@ def main() -> None:
             "repo_url": repo_state_url,
             "repo_path": repo_root,
             "doc_path": report_file,
+            "rubric_metadata": rubric.rubric_metadata,
+            "synthesis_rules": rubric.synthesis_rules,
             "rubric_dimensions": rubric.dimensions,
             "evidences": {},
             "opinions": [],

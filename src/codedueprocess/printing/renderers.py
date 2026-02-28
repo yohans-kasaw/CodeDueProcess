@@ -16,7 +16,13 @@ from codedueprocess.printing.events import (
     LayerMeta,
     TraceEvent,
 )
-from codedueprocess.schemas.models import AuditReport, JudicialOpinion
+from codedueprocess.schemas.models import (
+    AuditReport,
+    Dimension,
+    JudicialOpinion,
+    RubricMetadata,
+    SynthesisRules,
+)
 
 
 def render_audit_start(console: Console, repo_url: str) -> None:
@@ -88,6 +94,73 @@ def render_chief_summary(
         box=box.ROUNDED,
     )
     console.print(panel)
+
+    dimension_table = Table(title="Dimension Scores", box=box.SIMPLE_HEAVY)
+    dimension_table.add_column("Dimension ID", style="agent")
+    dimension_table.add_column("Name")
+    dimension_table.add_column("Final Score", justify="right", style="metric")
+    for criterion in report.criteria:
+        dimension_table.add_row(
+            criterion.dimension_id,
+            criterion.dimension_name,
+            str(criterion.final_score),
+        )
+    console.print(dimension_table)
+
+
+def render_rubric_details(
+    console: Console,
+    metadata: RubricMetadata,
+    dimensions: list[Dimension],
+    synthesis_rules: SynthesisRules,
+) -> None:
+    """Render detailed rubric metadata and dimension requirements."""
+    meta_table = Table(show_header=False, box=box.SIMPLE, pad_edge=False)
+    meta_table.add_column("k", style="agent")
+    meta_table.add_column("v")
+    meta_table.add_row("Rubric", metadata.rubric_name)
+    meta_table.add_row("Version", metadata.version)
+    meta_table.add_row("Grading target", metadata.grading_target)
+
+    rules_table = Table(show_header=False, box=box.SIMPLE, pad_edge=False)
+    rules_table.add_column("rule", style="agent")
+    rules_table.add_column("instruction")
+    rules_table.add_row("security_override", synthesis_rules.security_override)
+    rules_table.add_row("fact_supremacy", synthesis_rules.fact_supremacy)
+    rules_table.add_row("functionality_weight", synthesis_rules.functionality_weight)
+    rules_table.add_row("dissent_requirement", synthesis_rules.dissent_requirement)
+    rules_table.add_row(
+        "variance_re_evaluation", synthesis_rules.variance_re_evaluation
+    )
+
+    dim_table = Table(title="Rubric Dimensions", box=box.SIMPLE_HEAVY)
+    dim_table.add_column("ID", style="agent")
+    dim_table.add_column("Name")
+    dim_table.add_column("Target")
+    dim_table.add_column("Forensic Instruction")
+    dim_table.add_column("Success Pattern")
+    dim_table.add_column("Failure Pattern")
+    for dimension in dimensions:
+        dim_table.add_row(
+            dimension.id,
+            dimension.name,
+            dimension.target_artifact,
+            dimension.forensic_instruction,
+            dimension.success_pattern,
+            dimension.failure_pattern,
+        )
+
+    console.print(
+        Panel(
+            meta_table, title="Rubric Metadata", border_style="layer", box=box.ROUNDED
+        )
+    )
+    console.print(
+        Panel(
+            rules_table, title="Synthesis Rules", border_style="layer", box=box.ROUNDED
+        )
+    )
+    console.print(dim_table)
 
 
 def _max_score_variance(report: AuditReport) -> int:

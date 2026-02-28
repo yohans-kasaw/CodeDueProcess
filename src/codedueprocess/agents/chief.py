@@ -5,6 +5,7 @@ from __future__ import annotations
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from codedueprocess.agents.types import StateNode
+from codedueprocess.rubric_prompt import format_full_rubric
 from codedueprocess.schemas.models import AuditReport, Evidence, JudicialOpinion
 from codedueprocess.state import AgentState
 
@@ -17,6 +18,22 @@ def make_chief_justice_node(
 
     def chief_justice_node(state: AgentState) -> dict[str, object]:
         repo_url = state.get("repo_url", "")
+        rubric_metadata = state.get("rubric_metadata")
+        synthesis_rules = state.get("synthesis_rules")
+        dimensions = state.get("rubric_dimensions", [])
+        if rubric_metadata is None:
+            raise ValueError(
+                "rubric_metadata is required before chief_justice synthesis"
+            )
+        if synthesis_rules is None:
+            raise ValueError(
+                "synthesis_rules is required before chief_justice synthesis"
+            )
+        if not dimensions:
+            raise ValueError(
+                "rubric_dimensions is required before chief_justice synthesis"
+            )
+
         evidences = state.get("evidences", {})
         evidence_refs = _flatten_evidence(evidences)
         if len(evidence_refs) == 0:
@@ -32,6 +49,15 @@ def make_chief_justice_node(
                 "opinions is empty; run judge nodes before chief_justice synthesis"
             )
 
+        required_dimensions = {dimension.id for dimension in dimensions}
+        judged_dimensions = {opinion.criterion_id for opinion in opinions}
+        missing_judge_dimensions = required_dimensions - judged_dimensions
+        if missing_judge_dimensions:
+            raise ValueError(
+                "judge opinions do not cover all rubric dimensions. Missing: "
+                f"{', '.join(sorted(missing_judge_dimensions))}"
+            )
+
         evidence_catalog = "\n".join(
             _format_evidence_reference(reference, evidence)
             for reference, evidence in evidence_refs
@@ -41,13 +67,23 @@ def make_chief_justice_node(
         prompt = (
             "Synthesize judicial opinions into a final audit report grounded "
             "in the evidence list and judge opinions below.\n"
+            "The final report must include criteria entries for every rubric "
+            "dimension.\n"
             f"Repository URL: {repo_url}\n"
             f"Total evidence entries: {len(evidence_refs)}\n"
             f"Total opinions: {opinions_count}\n\n"
+            f"{format_full_rubric(rubric_metadata, dimensions, synthesis_rules)}\n\n"
             f"Evidence list:\n{evidence_catalog}\n\n"
             f"Judge opinions:\n{opinion_catalog}"
         )
         report = AuditReport.model_validate(chain.invoke(prompt))
+        report_dimensions = {criterion.dimension_id for criterion in report.criteria}
+        missing_report_dimensions = required_dimensions - report_dimensions
+        if missing_report_dimensions:
+            raise ValueError(
+                "final report did not cover all rubric dimensions. Missing: "
+                f"{', '.join(sorted(missing_report_dimensions))}"
+            )
         return {"final_report": report}
 
     return chief_justice_node

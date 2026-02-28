@@ -75,6 +75,12 @@ class JudicialOpinion(BaseModel):
     cited_evidence: list[str]
 
 
+class JudgeDeliberation(BaseModel):
+    """A judge output containing scores for all rubric dimensions."""
+
+    opinions: list[JudicialOpinion]
+
+
 # --- Chief Justice Output ---
 
 
