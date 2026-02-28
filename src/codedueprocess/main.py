@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
+import tempfile
 from collections.abc import Iterator, Sequence
 from itertools import cycle
+from pathlib import Path
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
@@ -49,8 +54,15 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="codedueprocess",
         description="Run the Digital Courtroom audit graph.",
     )
-    parser.add_argument("--repo-url", required=True, help="Repository URL under audit")
-    parser.add_argument("--repo-path", default=".", help="Local repository path")
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
+        "--repo-url",
+        help="Repository URL to clone and audit",
+    )
+    source_group.add_argument(
+        "--repo-path",
+        help="Path to an already cloned local repository",
+    )
     parser.add_argument("--docs-path", default="docs", help="Local docs path")
     parser.add_argument("--pdf-path", default="", help="Optional external report path")
     parser.add_argument(
@@ -84,12 +96,17 @@ def _default_dimension() -> Dimension:
     )
 
 
-def _initial_state(args: argparse.Namespace) -> AgentState:
+def _initial_state(
+    args: argparse.Namespace,
+    *,
+    repo_url: str,
+    repo_path: str,
+) -> AgentState:
     return cast(
         AgentState,
         {
-            "repo_url": args.repo_url,
-            "repo_path": args.repo_path,
+            "repo_url": repo_url,
+            "repo_path": repo_path,
             "doc_path": args.docs_path,
             "rubric_dimensions": [_default_dimension()],
             "evidences": {},
@@ -169,15 +186,63 @@ def _real_models(model_name: str) -> AuditGraphModels:
     return AuditGraphModels.from_single(llm)
 
 
+def _resolve_repository_source(args: argparse.Namespace) -> tuple[str, str, str | None]:
+    local_repo_path = args.repo_path
+    if isinstance(local_repo_path, str) and local_repo_path.strip():
+        path = Path(local_repo_path).expanduser().resolve()
+        if not path.exists() or not path.is_dir():
+            raise ValueError(
+                f"Local repo path does not exist or is not a directory: {path}"
+            )
+        return (f"local:{path}", str(path), None)
+
+    repo_url = args.repo_url
+    if not isinstance(repo_url, str) or not repo_url.strip():
+        raise ValueError("Either --repo-url or --repo-path is required")
+
+    temp_root = tempfile.mkdtemp(prefix="codedueprocess-repo-")
+    clone_target = Path(temp_root) / _repo_name_from_url(repo_url)
+    try:
+        subprocess.run(
+            ["git", "clone", repo_url, str(clone_target)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        stderr = (exc.stderr or "").strip()
+        details = f": {stderr}" if stderr else ""
+        raise ValueError(f"Failed to clone repository {repo_url}{details}") from exc
+
+    return (repo_url, str(clone_target), temp_root)
+
+
+def _repo_name_from_url(repo_url: str) -> str:
+    path = urlparse(repo_url).path.rstrip("/")
+    name = path.split("/")[-1] if path else "repo"
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name or "repo"
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     """Run CLI and return process exit code."""
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    models = _mock_models() if args.mode == "mock" else _real_models(args.model)
-    state = _initial_state(args)
+    temp_root: str | None = None
 
     try:
+        resolved_repo_url, resolved_repo_path, temp_root = _resolve_repository_source(
+            args
+        )
+        models = _mock_models() if args.mode == "mock" else _real_models(args.model)
+        state = _initial_state(
+            args,
+            repo_url=resolved_repo_url,
+            repo_path=resolved_repo_path,
+        )
         result = run_audit(
             models=models,
             state=state,
@@ -189,6 +254,9 @@ def run(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"Audit failed: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if temp_root is not None:
+            shutil.rmtree(temp_root, ignore_errors=True)
 
     final_report = cast(AuditReport, result["final_report"])
     print("Audit completed.")

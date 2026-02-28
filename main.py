@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from contextlib import ExitStack
+from pathlib import Path
 from typing import cast
 
 import yaml  # type: ignore[import-untyped]
@@ -107,7 +109,13 @@ def main() -> None:
     """Prompt user and run the end-to-end audit workflow."""
     tracer = AuditTracer()
     user_inputs = prompt_for_run_inputs(default_rubric_path="docs/sample_rubric.yaml")
-    tracer.audit_started(user_inputs.repo_url)
+
+    repo_reference = user_inputs.repo_url or user_inputs.repo_path
+    if not repo_reference:
+        print("Error: either repository URL or local repository path is required.")
+        sys.exit(1)
+
+    tracer.audit_started(repo_reference)
 
     # 1. Initialize LLM
     tracer.layer_started(AuditLayer.INGESTION)
@@ -134,23 +142,39 @@ def main() -> None:
     tracer.success(AuditLayer.INGESTION, "Rubric", "Rubric loaded")
 
     # 3. Execution Context
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Clone Repo
-        tracer.info(AuditLayer.INGESTION, "Cloner", "Cloning repository...")
-        with tracer.live_status(
-            AuditLayer.INGESTION, "Cloner", "Cloning repository..."
-        ):
-            safe_git_clone(user_inputs.repo_url, temp_dir)
-        file_count = sum(len(files) for _, _, files in os.walk(temp_dir))
-        tracer.success(
-            AuditLayer.INGESTION,
-            "Cloner",
-            f"Repository cloned successfully ({file_count} files)",
-        )
+    with ExitStack() as stack:
+        if user_inputs.repo_path:
+            repo_root = str(Path(user_inputs.repo_path).expanduser().resolve())
+            tracer.info(
+                AuditLayer.INGESTION, "Cloner", f"Using local path: {repo_root}"
+            )
+            if not os.path.isdir(repo_root):
+                tracer.failure(
+                    AuditLayer.INGESTION,
+                    "Cloner",
+                    f"Local repository path does not exist: {repo_root}",
+                )
+                sys.exit(1)
+            repo_state_url = f"local:{repo_root}"
+        else:
+            temp_dir = stack.enter_context(tempfile.TemporaryDirectory())
+            tracer.info(AuditLayer.INGESTION, "Cloner", "Cloning repository...")
+            with tracer.live_status(
+                AuditLayer.INGESTION, "Cloner", "Cloning repository..."
+            ):
+                safe_git_clone(cast(str, user_inputs.repo_url), temp_dir)
+            file_count = sum(len(files) for _, _, files in os.walk(temp_dir))
+            tracer.success(
+                AuditLayer.INGESTION,
+                "Cloner",
+                f"Repository cloned successfully ({file_count} files)",
+            )
+            repo_root = temp_dir
+            repo_state_url = cast(str, user_inputs.repo_url)
 
         # Resolve Report
         tracer.info(AuditLayer.INGESTION, "ReportResolver", "Resolving report file...")
-        report_file = find_report_path(temp_dir, user_inputs.report_path)
+        report_file = find_report_path(repo_root, user_inputs.report_path)
         tracer.success(AuditLayer.INGESTION, "ReportResolver", f"Using {report_file}")
 
         # 4. Build Graph
@@ -162,8 +186,8 @@ def main() -> None:
         # 5. Run Audit
         tracer.info(AuditLayer.JUDGES, "Panel Deliberation", "Active")
         initial_state = {
-            "repo_url": user_inputs.repo_url,
-            "repo_path": temp_dir,
+            "repo_url": repo_state_url,
+            "repo_path": repo_root,
             "doc_path": report_file,
             "rubric_dimensions": rubric.dimensions,
             "evidences": {},

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 from rich.panel import Panel
@@ -16,7 +17,8 @@ class RunInputs:
     """Input values collected from an interactive terminal session."""
 
     provider: str
-    repo_url: str
+    repo_url: str | None
+    repo_path: str | None
     model: str | None
     report_path: str | None
     rubric_path: str
@@ -38,7 +40,18 @@ def prompt_for_run_inputs(default_rubric_path: str) -> RunInputs:
         default="gemini",
     )
 
-    repo_url = _prompt_github_url()
+    source_mode = Prompt.ask(
+        "Repository source",
+        choices=["url", "path"],
+        default="path",
+    )
+
+    repo_url: str | None = None
+    repo_path: str | None = None
+    if source_mode == "url":
+        repo_url = _prompt_github_url()
+    else:
+        repo_path = _prompt_local_repo_path()
 
     model: str | None = None
     if Confirm.ask("Use a custom model name?", default=False):
@@ -56,6 +69,7 @@ def prompt_for_run_inputs(default_rubric_path: str) -> RunInputs:
     return RunInputs(
         provider=provider,
         repo_url=repo_url,
+        repo_path=repo_path,
         model=model,
         report_path=report_path,
         rubric_path=rubric_path,
@@ -70,6 +84,22 @@ def _prompt_github_url() -> str:
         console.print(
             "[error]Please enter a valid GitHub URL, for example: "
             "https://github.com/user/repo[/error]"
+        )
+
+
+def _prompt_local_repo_path() -> str:
+    while True:
+        value = Prompt.ask("Local repository path").strip()
+        if not value:
+            console.print("[error]Path cannot be empty[/error]")
+            continue
+
+        path = Path(value).expanduser().resolve()
+        if path.exists() and path.is_dir():
+            return str(path)
+
+        console.print(
+            f"[error]Directory not found: {path}. Enter a valid local path.[/error]"
         )
 
 
