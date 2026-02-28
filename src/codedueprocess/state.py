@@ -46,4 +46,4 @@ class AgentState(TypedDict):
     opinions: Annotated[list[JudicialOpinion], operator.add]
 
     # Final generated report
-    final_report: AuditReport
+    final_report: NotRequired[AuditReport]

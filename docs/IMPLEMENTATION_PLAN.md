@@ -137,15 +137,15 @@ Verify the entire flow using standard testing tools.
 
 ### Step 5: Observability & Quality Gates (LangSmith)
 
-- [ ] **Task 5.1: Trace Core Entry Points**
+- [x] **Task 5.1: Trace Core Entry Points**
     - Add `@traceable` to top-level orchestration entry points (graph invocation boundary).
     - If direct SDK clients are used, wrap them with LangSmith wrappers where applicable.
 
-- [ ] **Task 5.2: Add Pytest + LangSmith Markers**
+- [x] **Task 5.2: Add Pytest + LangSmith Markers**
     - Add `pytest.mark.langsmith` to selected high-value integration tests.
     - Use `langsmith.testing` helpers (`log_inputs`, `log_outputs`, `log_reference_outputs`, optional feedback) for richer test diagnostics.
 
-- [ ] **Task 5.3: Clarify Interface Ownership**
+- [x] **Task 5.3: Clarify Interface Ownership**
     - Do **not** define custom tracing interfaces that duplicate LangSmith primitives.
     - Do **not** import LLM interfaces from LangSmith (LangSmith is observability/testing, not model abstraction).
     - Keep model interfaces from LangChain (`BaseChatModel`/Runnable) and orchestration interfaces from LangGraph.
