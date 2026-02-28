@@ -1,23 +1,23 @@
 # Implementation Plan: Auditor Architecture
 
-This document outlines a test-first implementation plan for the Auditor Architecture (The Digital Courtroom). It is updated with a Context7-backed validation of LangChain, LangGraph, LangSmith, and Rich APIs, with emphasis on replacing custom abstractions with stable library interfaces wherever possible.
+This document outlines the implementation plan for the Auditor Architecture (The Digital Courtroom). It is updated with a Context7-backed validation of LangChain, LangGraph, LangSmith, and Rich APIs, with emphasis on replacing custom abstractions with stable library interfaces wherever possible.
 
 ## Context7 Verification Notes
 
 - Verified APIs and patterns against Context7 docs for:
-  - `langchain` (testing + structured output + fake chat models)
-  - `langgraph` (StateGraph topology, reducers, node testing, map-reduce/fan-out)
-  - `langsmith` (tracing + pytest integration)
-  - `rich` (styled console rendering, live updates, test capture patterns)
+  - `langchain` (structured output + fake chat models)
+  - `langgraph` (StateGraph topology, reducers, map-reduce/fan-out)
+  - `langsmith` (tracing)
+  - `rich` (styled console rendering, live updates)
 - Key correction from research:
   - Prefer LangGraph node signatures like `node(state) -> dict` (or `node(state, runtime) -> dict`) over assuming `RunnableConfig` is always a direct node parameter.
   - Keep `RunnableConfig` for graph invocation config (`graph.invoke(input, config=...)`) and runtime context propagation.
 - Library-over-custom guidance:
   - Use `GenericFakeChatModel` from `langchain_core.language_models.fake_chat_models` instead of custom `MockLLMClient`.
-  - Use LangSmith tracing/testing utilities (`@traceable`, `pytest.mark.langsmith`, `langsmith.testing`) instead of custom tracing wrappers.
+  - Use LangSmith tracing utilities (`@traceable`) instead of custom tracing wrappers.
   - Use Rich primitives (`Console`, `Panel`, `Table`, `Tree`, `Progress`, `Live`) instead of handcrafted ANSI formatting.
 
-## Phase 0: Environment Setup & Cleanup
+## Phase 0: Environment Setup
 
 Before starting the core implementation, ensure the environment and dependencies are correctly set up.
 
@@ -25,40 +25,23 @@ Before starting the core implementation, ensure the environment and dependencies
     - Add/confirm these dependencies in `pyproject.toml`:
       - `langchain-core` (core model interfaces, fake chat models)
       - `langgraph` (orchestration)
-      - `langsmith` (tracing and test observability)
-    - If direct provider clients are used (OpenAI/Anthropic/etc.), keep provider packages separate from orchestration/testing concerns.
+      - `langsmith` (tracing)
+    - If direct provider clients are used (OpenAI/Anthropic/etc.), keep provider packages separate from orchestration concerns.
     - Run `uv sync` (or equivalent) to install.
-
-- [x] **Task 0.2: Cleanup Existing Tests**
-    - Refactor or remove `tests/test_integration.py` and `tests/test_agent_nodes.py` if they rely on the obsolete `codedueprocess.agent` module.
-    - Ensure `tests/` is aligned with the new `src/codedueprocess/agents` + `src/codedueprocess/graph.py` layout.
-    - Preserve any reusable fixtures/assertion helpers that are still valid.
 
 ## Phase 1: Core Architecture & Orchestration Flow
 
-**Goal:** Create a testable, modular system where agents are orchestrated as a graph to produce an Audit Report, using LangChain's `BaseChatModel` interface and `GenericFakeChatModel` for deterministic verification.
+**Goal:** Create a modular system where agents are orchestrated as a graph to produce an Audit Report, using LangChain's `BaseChatModel` interface.
 
-### Step 1: LLM Abstraction & Mocking
-Leverage LangChain's native interfaces instead of custom wrappers to ensure compatibility with community tools and testing utilities.
+### Step 1: LLM Abstraction
 
-- Verification scope note:
-    - AI-agent verification should only use deterministic `MockLLM`/`GenericFakeChatModel`-based tests.
-    - Human verification should run the actual provider-backed LLM checks separately.
+Leverage LangChain's native interfaces instead of custom wrappers to ensure compatibility with community tools.
 
 - [x] **Task 1.1: Adopt `BaseChatModel` Interface**
     - Use `langchain_core.language_models.chat_models.BaseChatModel` as the standard interface for all agents.
     - Ensure all agent implementations accept a `BaseChatModel` instance (or a `Runnable` derived from it) through dependency injection.
     - Use `.with_structured_output(PydanticModel)` for type-safe generation and parser consistency.
-    - Add one contract test that verifies each configured model supports structured output for the expected schema.
     - *Note:* The `JudicialOpinion` schema (judge, criterion_id, score, argument, cited_evidence) is already defined in `src/codedueprocess/schemas/models.py`.
-
-- [x] **Task 1.2: Setup Testing Infrastructure with `GenericFakeChatModel`**
-    - Create `tests/conftest.py` or `tests/fixtures.py`.
-    - Implement fixtures that provide `GenericFakeChatModel` (from `langchain_core.language_models.fake_chat_models`) pre-loaded with deterministic responses.
-    - Prefer `AIMessage` payloads for realistic behavior; include tool-call shaped messages if tools are used.
-    - *Example usage:* `fake_llm = GenericFakeChatModel(messages=iter([AIMessage(content="..."), ...]))`.
-    - This replaces a custom `MockLLMClient` and keeps tests aligned with LangChain runtime semantics.
-    - Add a fixture variant that intentionally returns malformed output to verify schema validation failure paths.
 
 ### Step 2: Agent Definitions (Graph Nodes)
 Implement agents as LangGraph nodes (functions or runnables) that accept the graph state and return state updates.
@@ -85,7 +68,6 @@ Implement agents as LangGraph nodes (functions or runnables) that accept the gra
         - `DefenseAttorney` (Focus: strengths).
         - `TechLead` (Focus: synthesis).
     - All output `JudicialOpinion` objects which are appended to the `opinions` list in State (via `operator.add` reducer).
-    - Add deterministic tests for each judge role with fixed evidence inputs and fake model outputs.
 
 - [x] **Task 2.4: Implement Chief Justice Node**
     - Create `src/codedueprocess/agents/chief.py`.
@@ -105,61 +87,36 @@ Wire the agents together using `langgraph.graph.StateGraph`.
         - [RepoInvestigator, DocAnalyst] -> Judge Fan-out (One set of judges per rubric dimension)
         - Judges -> ChiefJustice (Fan-in)
         - ChiefJustice -> End
-    - Encode fan-out/fan-in explicitly so concurrent branches are observable and testable.
+    - Encode fan-out/fan-in explicitly.
 
 - [x] **Task 3.2: Implement Parallel Execution**
     - Ensure the State definition (`src/codedueprocess/state.py`) correctly uses `Annotated[list, operator.add]` for lists like `evidences` and `opinions` to support parallel writes from multiple nodes without race conditions.
-    - Add a focused concurrency test where two parallel nodes write to the same reducer-backed list and both values are preserved.
 
 - [x] **Task 3.3: Add Runtime Context Schema (Optional but Recommended)**
     - Define LangGraph `context_schema` for runtime values (e.g., active model profile, thread id, trace metadata).
     - Keep node logic pure with respect to state updates; read runtime context only for configuration behavior.
 
-### Step 4: Verification (The "Test")
-Verify the entire flow using standard testing tools.
+### Step 4: Observability & Quality Gates (LangSmith)
 
-- [x] **Task 4.1: Unit Tests for Nodes**
-    - Create `tests/test_agents.py`.
-    - Test each node function in isolation by passing a mock State and a `GenericFakeChatModel`.
-    - Verify that the node updates the state correctly (e.g., adds an opinion).
-    - Also test compiled-node invocation (`compiled_graph.nodes["node_name"].invoke(...)`) for at least one node to validate LangGraph integration semantics.
-
-- [x] **Task 4.2: Integration Test (End-to-End Flow)**
-    - Create `tests/test_graph_flow.py`.
-    - Instantiate the graph with a `GenericFakeChatModel` loaded with a sequence of responses corresponding to the execution order (Detectives -> Judges -> Chief).
-    - `graph.invoke({...})`.
-    - Assert `final_report` is present and valid.
-    - Assert reducer-merged collections (`evidences`, `opinions`) contain expected cardinality and provenance.
-
-- [x] **Task 4.3: Failure-Mode Tests**
-    - Add tests for invalid structured output, missing evidence, and empty rubric dimensions.
-    - Confirm errors are surfaced with actionable messages and do not silently drop state updates.
-
-### Step 5: Observability & Quality Gates (LangSmith)
-
-- [ ] **Task 5.1: Trace Core Entry Points**
+- [ ] **Task 4.1: Trace Core Entry Points**
     - Add `@traceable` to top-level orchestration entry points (graph invocation boundary).
     - If direct SDK clients are used, wrap them with LangSmith wrappers where applicable.
 
-- [ ] **Task 5.2: Add Pytest + LangSmith Markers**
-    - Add `pytest.mark.langsmith` to selected high-value integration tests.
-    - Use `langsmith.testing` helpers (`log_inputs`, `log_outputs`, `log_reference_outputs`, optional feedback) for richer test diagnostics.
-
-- [ ] **Task 5.3: Clarify Interface Ownership**
+- [ ] **Task 4.2: Clarify Interface Ownership**
     - Do **not** define custom tracing interfaces that duplicate LangSmith primitives.
     - Do **not** import LLM interfaces from LangSmith (LangSmith is observability/testing, not model abstraction).
     - Keep model interfaces from LangChain (`BaseChatModel`/Runnable) and orchestration interfaces from LangGraph.
 
-### Step 6: Styled Console Printing (Rich)
+### Step 5: Styled Console Printing (Rich)
 
 **Goal:** Make orchestration progress easy to follow in real time with readable, structured, visually consistent terminal output aligned with architecture docs.
 
-- [ ] **Task 6.1: Add Printing Module and Theme**
+- [ ] **Task 5.1: Add Printing Module and Theme**
     - Create `src/codedueprocess/printing/console.py` with a `Console` factory and shared theme tokens.
     - Define semantic styles (e.g., `layer`, `agent`, `success`, `warning`, `error`, `metric`) instead of ad-hoc color strings.
     - Keep all rendering concerns in this module to avoid coupling business logic with terminal formatting.
 
-- [ ] **Task 6.2: Implement Structured Renderers**
+- [ ] **Task 5.2: Implement Structured Renderers**
     - Create `src/codedueprocess/printing/renderers.py` with focused functions:
       - `print_audit_start(repo_url: str)` using `Panel`.
       - `print_layer_event(layer: str, message: str, agent: str | None = None)`.
@@ -171,24 +128,17 @@ Verify the entire flow using standard testing tools.
       - Layer 2 Judges
       - Layer 3 Chief Justice
 
-- [ ] **Task 6.3: Add Live Progress for Long Steps**
+- [ ] **Task 5.3: Add Live Progress for Long Steps**
     - Use `Progress` (`SpinnerColumn`, elapsed time, task description) for long-running tasks like cloning, parsing, and graph execution.
     - Use `Live` for dynamic section updates when multiple parallel nodes are active.
     - Ensure live rendering degrades gracefully in non-interactive environments (CI or redirected output).
 
-- [ ] **Task 6.4: Wire Printing into Orchestration**
+- [ ] **Task 5.4: Wire Printing into Orchestration**
     - Integrate renderer calls at orchestration boundaries in `src/codedueprocess/graph.py` and/or top-level run entrypoint.
     - Emit events from node boundaries (start, success, failure) without mixing agent reasoning text into UI formatter internals.
     - Keep the final markdown report generation separate from real-time console rendering.
 
-- [ ] **Task 6.5: Testability of Console Output**
-    - Add `tests/test_printing.py` using Rich-supported capture patterns:
-      - `Console(file=StringIO())` for deterministic string assertions.
-      - `console.capture()` for isolated output blocks.
-    - Assert key invariants (layer labels, agent names, score formatting, output path) rather than brittle full-frame snapshots.
-    - Add one smoke test for `Live`/`Progress` paths to ensure no runtime exceptions in headless test mode.
-
-- [ ] **Task 6.6: Logging and Printing Contract**
+- [ ] **Task 5.5: Logging and Printing Contract**
     - Define when to use Rich printing vs structured logs:
       - Rich: human-facing, real-time execution narrative.
       - Logs: machine-facing diagnostics and postmortem detail.
@@ -196,9 +146,8 @@ Verify the entire flow using standard testing tools.
 
 ## Acceptance Criteria (Research-Backed)
 
-- [ ] No custom mock LLM client exists; tests rely on LangChain fake chat models.
 - [ ] Node signatures and graph wiring follow current LangGraph patterns.
-- [ ] Parallel writes use reducer-annotated state fields and are covered by tests.
-- [ ] Structured output is schema-validated and covered for both success and failure paths.
-- [ ] LangSmith tracing/testing is integrated without replacing core model/orchestration interfaces.
-- [ ] Styled console output is implemented with Rich primitives and covered by deterministic tests.
+- [ ] Parallel writes use reducer-annotated state fields.
+- [ ] Structured output is schema-validated.
+- [ ] LangSmith tracing is integrated without replacing core model/orchestration interfaces.
+- [ ] Styled console output is implemented with Rich primitives.

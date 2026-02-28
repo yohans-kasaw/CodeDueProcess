@@ -11,7 +11,6 @@ CodeDueProcess/
 ├── src/
 │   ├── codedueprocess/     # Main implementation (empty - awaiting actual implementation)
 │   └── sandbox/            # LangGraph testing environment
-├── tests/                  # Test suite
 ├── pyproject.toml          # Project configuration
 ├── langgraph.json          # LangGraph deployment config
 └── README.md
