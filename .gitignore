@@ -208,3 +208,6 @@ __marimo__/
 .grepai/
 .langgraph_api/
 .langchain.db
+
+# custom
+output/
