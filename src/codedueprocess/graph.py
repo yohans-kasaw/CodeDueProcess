@@ -138,3 +138,16 @@ def _as_graph_node(
             raise
 
     return RunnableLambda(wrapped)
+
+
+def run_audit(
+    models: AuditGraphModels,
+    state: AgentState,
+    context: AuditRuntimeContext | None = None,
+) -> AgentState:
+    """Execute the audit graph and return the final graph state."""
+    tracer = AuditTracer()
+    graph = build_audit_graph(models, tracer=tracer)
+    if context is None:
+        return cast(AgentState, graph.invoke(state))
+    return cast(AgentState, graph.invoke(state, context=context))
