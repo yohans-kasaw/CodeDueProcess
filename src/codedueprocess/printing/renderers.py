@@ -114,7 +114,7 @@ def render_rubric_details(
     dimensions: list[Dimension],
     synthesis_rules: SynthesisRules,
 ) -> None:
-    """Render detailed rubric metadata and dimension requirements."""
+    """Render rubric metadata and compact dimension requirements."""
     meta_table = Table(show_header=False, box=box.SIMPLE, pad_edge=False)
     meta_table.add_column("k", style="agent")
     meta_table.add_column("v")
@@ -137,17 +137,11 @@ def render_rubric_details(
     dim_table.add_column("ID", style="agent")
     dim_table.add_column("Name")
     dim_table.add_column("Target")
-    dim_table.add_column("Forensic Instruction")
-    dim_table.add_column("Success Pattern")
-    dim_table.add_column("Failure Pattern")
     for dimension in dimensions:
         dim_table.add_row(
             dimension.id,
             dimension.name,
             dimension.target_artifact,
-            dimension.forensic_instruction,
-            dimension.success_pattern,
-            dimension.failure_pattern,
         )
 
     console.print(

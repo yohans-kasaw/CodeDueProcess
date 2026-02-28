@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_litellm import ChatLiteLLM
 
 from codedueprocess.graph import AuditGraphModels, run_audit
+from codedueprocess.report_markdown import render_report_markdown
 from codedueprocess.schemas.models import (
     AuditReport,
     Dimension,
@@ -288,11 +290,24 @@ def run(argv: Sequence[str] | None = None) -> int:
             shutil.rmtree(temp_root, ignore_errors=True)
 
     final_report = cast(AuditReport, result["final_report"])
+    output_path = write_audit_report(final_report)
     print("Audit completed.")
     print(f"Overall score: {final_report.overall_score}")
-    print("Final report JSON:")
-    print(final_report.model_dump_json(indent=2))
+    print(f"Markdown report: {output_path}")
+    print()
+    print(render_report_markdown(final_report))
     return 0
+
+
+def write_audit_report(final_report: AuditReport) -> str:
+    """Persist the final audit report to output/audit_report.md."""
+    output_dir = os.path.join(os.getcwd(), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "audit_report.md")
+    markdown = render_report_markdown(final_report)
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(markdown)
+    return output_path
 
 
 if __name__ == "__main__":

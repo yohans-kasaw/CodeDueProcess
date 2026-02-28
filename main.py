@@ -19,6 +19,7 @@ from codedueprocess.cli.prompts import prompt_for_run_inputs
 from codedueprocess.graph import AuditGraphModels, build_audit_graph
 from codedueprocess.printing.events import AuditLayer
 from codedueprocess.printing.tracer import AuditTracer
+from codedueprocess.report_markdown import render_report_markdown
 from codedueprocess.schemas.models import AuditReport, Rubric
 
 # Load environment variables
@@ -223,11 +224,10 @@ def write_audit_report(final_report: AuditReport) -> str:
     output_dir = os.path.join(os.getcwd(), "output")
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "audit_report.md")
+    markdown = render_report_markdown(final_report)
     with open(output_path, "w", encoding="utf-8") as file:
-        file.write("# Audit Report\n\n")
-        file.write("```json\n")
-        file.write(final_report.model_dump_json(indent=2))
-        file.write("\n```\n")
+        file.write(markdown)
+    print(markdown)
     return output_path
 
 
