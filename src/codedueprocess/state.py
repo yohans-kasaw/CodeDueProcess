@@ -1,53 +1,52 @@
-import operator
-from typing import Annotated, Literal
+"""State management for CodeDueProcess agents."""
 
-from pydantic import BaseModel, Field
+import operator
+from typing import Annotated
+
 from typing_extensions import TypedDict
 
-
-# --- Detective Output ---
-class Evidence(BaseModel):
-    goal: str
-    found: bool
-    content: str | None = None
-    location: str  # File path or commit hash
-    rationale: str
-    confidence: float
-
-
-# --- Judge Output ---
-class JudicialOpinion(BaseModel):
-    judge: Literal["Prosecutor", "Defense", "TechLead"]
-    criterion_id: str
-    score: int = Field(ge=1, le=5)
-    argument: str
-    cited_evidence: list[str]
+from codedueprocess.schemas.models import (
+    AuditReport,
+    Dimension,
+    Evidence,
+    JudicialOpinion,
+    RubricMetadata,
+    SynthesisRules,
+)
 
 
-# --- Chief Justice Output ---
-class CriterionResult(BaseModel):
-    dimension_id: str
-    dimension_name: str
-    final_score: int = Field(ge=1, le=5)
-    judge_opinions: list[JudicialOpinion]
-    dissent_summary: str | None = None  # Required when score variance > 2
-    remediation: str
+def merge_evidences(
+    existing: dict[str, list[Evidence]], new_data: dict[str, list[Evidence]]
+) -> dict[str, list[Evidence]]:
+    """Custom reducer for evidence dictionary."""
+    if not existing:
+        return new_data
+    merged = existing.copy()
+    for key, val in new_data.items():
+        if key in merged:
+            merged[key] = merged[key] + val
+        else:
+            merged[key] = val
+    return merged
 
 
-class AuditReport(BaseModel):
-    repo_url: str
-    executive_summary: str
-    overall_score: float
-    criteria: list[CriterionResult]
-    remediation_plan: str
-
-
-# --- Graph State ---
 class AgentState(TypedDict):
+    """State for the CodeDueProcess agent workflow."""
+
     repo_url: str
-    pdf_path: str
-    rubric_dimensions: list[dict]
-    # Reducers prevent parallel agents from overwriting data
-    evidences: Annotated[dict[str, list[Evidence]], operator.ior]
+    repo_path: str
+    doc_path: str
+    rubric_metadata: RubricMetadata
+    synthesis_rules: SynthesisRules
+    # The Rubric dimensions to be evaluated
+    rubric_dimensions: list[Dimension]
+
+    # Evidence collected by Detectives
+    # Key is dimension_id, Value is list of Evidence objects
+    evidences: Annotated[dict[str, list[Evidence]], merge_evidences]
+
+    # Opinions rendered by Judges
     opinions: Annotated[list[JudicialOpinion], operator.add]
+
+    # Final generated report
     final_report: AuditReport

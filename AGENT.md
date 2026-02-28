@@ -18,7 +18,6 @@ If a request is ambiguous or contradicts the specs:
 - **Data Contracts:** Pydantic v2
 - **Lint/Format:** Ruff
 - **Typing:** `mypy --strict`; avoid `Any` unless required (must annotate with `# justification: [reason]`)
-- **Testing:** `pytest` (+ `pytest-asyncio`)
 - **Documentation:** Use Google-style Python docstrings for all modules, classes, and functions to explain logic and intent. Compliance is enforced via Ruff.
 
 ## 4. Safety & Repo Hygiene
