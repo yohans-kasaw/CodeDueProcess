@@ -6,38 +6,43 @@ from langchain_community.agent_toolkits import FileManagementToolkit
 from langchain_core.tools import BaseTool, tool
 
 
-@tool
-def get_git_history(limit: int = 10) -> str:
-    """Return recent git commit history for the current repository.
-
-    Useful for understanding the project's evolution and contributor activity.
-    """
+def _read_git_history(repo_path: str, limit: int = 10) -> str:
     try:
-        # Check for .git directory first to avoid errors in non-git dirs
-        # We assume the current working directory is the repo root for this tool
         result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"], capture_output=True
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
-            return "Error: Not a git repository."
+            stderr = (result.stderr or "").strip() or "Not a git repository"
+            return f"Error running git rev-parse in {repo_path}: {stderr}"
 
-        # Get formatted log: Hash | Date | Author | Message
         cmd = [
             "git",
             "log",
-            f"-n {limit}",
+            "-n",
+            str(limit),
             "--pretty=format:%h | %ad | %an | %s",
             "--date=short",
         ]
-        log_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        log_result = subprocess.run(
+            cmd,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
         return f"Recent {limit} commits:\n" + log_result.stdout
     except subprocess.CalledProcessError as e:
-        return f"Error reading git history: {e}"
+        stderr = (e.stderr or "").strip() if e.stderr else ""
+        details = f" ({stderr})" if stderr else ""
+        return f"Error reading git history in {repo_path}: {e}{details}"
     except Exception as e:
-        return f"Unexpected error: {e}"
+        return f"Unexpected git history error in {repo_path}: {e}"
 
 
-def get_audit_tools(root_dir: str) -> list[BaseTool]:
+def get_audit_tools(repo_path: str) -> list[BaseTool]:
     """Return tools configured for audit agents.
 
     Includes safe file system operations and git history inspection.
@@ -45,11 +50,17 @@ def get_audit_tools(root_dir: str) -> list[BaseTool]:
     # Initialize file management toolkit for the specific root directory
     # strict=True ensures agents can't read files outside this directory
     toolkit = FileManagementToolkit(
-        root_dir=root_dir,
+        root_dir=repo_path,
         selected_tools=["read_file", "list_directory", "file_search"],
     )
 
     tools = toolkit.get_tools()
+
+    @tool("get_git_history")
+    def get_git_history(limit: int = 10) -> str:
+        """Return recent git commit history for the audited repository."""
+        return _read_git_history(repo_path=repo_path, limit=limit)
+
     tools.append(get_git_history)
 
     return tools

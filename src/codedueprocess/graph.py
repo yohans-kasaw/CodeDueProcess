@@ -66,14 +66,16 @@ def build_audit_graph(
         "repo_investigator",
         _as_graph_node(
             "repo_investigator",
-            make_repo_investigator_node(models.repo_investigator),
+            make_repo_investigator_node(models.repo_investigator, tracer=tracer),
             tracer,
         ),
     )
     builder.add_node(
         "doc_analyst",
         _as_graph_node(
-            "doc_analyst", make_doc_analyst_node(models.doc_analyst), tracer
+            "doc_analyst",
+            make_doc_analyst_node(models.doc_analyst, tracer=tracer),
+            tracer,
         ),
     )
     builder.add_node(

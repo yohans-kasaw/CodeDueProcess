@@ -6,7 +6,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from time import perf_counter
 from typing import Any
+from uuid import UUID
 
+from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 
 from codedueprocess.printing.console import console as default_console
@@ -24,7 +26,7 @@ from codedueprocess.printing.renderers import (
     render_layer_header,
     render_trace_event,
 )
-from codedueprocess.schemas.models import JudicialOpinion
+from codedueprocess.schemas.models import Evidence, JudicialOpinion
 
 
 class AuditTracer:
@@ -123,6 +125,14 @@ class AuditTracer:
         self.info(meta.layer, meta.display_name, "Running...")
         return perf_counter()
 
+    def tools_loaded(self, node_name: str, tool_names: list[str]) -> None:
+        """Render the set of tools loaded for an agent node."""
+        meta = AGENT_META.get(node_name)
+        if meta is None:
+            return
+        tools_label = ", ".join(tool_names) if tool_names else "none"
+        self.info(meta.layer, meta.display_name, f"Tools loaded: {tools_label}")
+
     def end_node(
         self, node_name: str, update: dict[str, object], started_at: float
     ) -> None:
@@ -135,11 +145,19 @@ class AuditTracer:
         duration_msg = f"({duration:.1f}s)"
 
         if node_name in {"repo_investigator", "doc_analyst"}:
-            evidences = _extract_evidence_count(update)
+            evidence_items = _extract_evidences(update)
+            for evidence in evidence_items:
+                summary = evidence.content or evidence.goal
+                self.info(
+                    meta.layer,
+                    meta.display_name,
+                    f"Evidence: {summary} @ {evidence.location}",
+                    branch=EventBranch.MID,
+                )
             self.success(
                 meta.layer,
                 meta.display_name,
-                f"Collected {evidences} evidences {duration_msg}",
+                f"Collected {len(evidence_items)} evidences {duration_msg}",
             )
             return
 
@@ -201,11 +219,99 @@ class AuditTracer:
 
 
 def _extract_evidence_count(update: dict[str, object]) -> int:
+    return len(_extract_evidences(update))
+
+
+def _extract_evidences(update: dict[str, object]) -> list[Evidence]:
     evidences = update.get("evidences", {})
     if not isinstance(evidences, dict):
-        return 0
-    total = 0
+        return []
+    collected: list[Evidence] = []
     for value in evidences.values():
         if isinstance(value, list):
-            total += len(value)
-    return total
+            for item in value:
+                if isinstance(item, Evidence):
+                    collected.append(item)
+    return collected
+
+
+class ToolLifecycleCallback(BaseCallbackHandler):
+    """Render tool lifecycle events through the audit tracer."""
+
+    def __init__(self, tracer: AuditTracer, node_name: str) -> None:
+        """Initialize callback handler for a specific graph node."""
+        self._tracer = tracer
+        self._meta = AGENT_META.get(node_name)
+        self._tools_by_run: dict[UUID, str] = {}
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        inputs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Render a tool start event with its name and raw input."""
+        del parent_run_id, tags, metadata, inputs, kwargs
+        if self._meta is None:
+            return None
+        tool_name = (
+            serialized.get("name")
+            or serialized.get("id")
+            or serialized.get("lc")
+            or "unknown"
+        )
+        self._tools_by_run[run_id] = str(tool_name)
+        self._tracer.info(
+            self._meta.layer,
+            self._meta.display_name,
+            f"Tool start: {tool_name} | args: {input_str}",
+        )
+        return None
+
+    def on_tool_end(
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Render successful completion for a previously started tool."""
+        del parent_run_id, kwargs, output
+        if self._meta is None:
+            return None
+        tool_name = self._tools_by_run.pop(run_id, "unknown")
+        self._tracer.success(
+            self._meta.layer,
+            self._meta.display_name,
+            f"Tool done: {tool_name}",
+            branch=EventBranch.MID,
+        )
+        return None
+
+    def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Render a tool failure event and include the error."""
+        del parent_run_id, kwargs
+        if self._meta is None:
+            return None
+        tool_name = self._tools_by_run.pop(run_id, "unknown")
+        self._tracer.failure(
+            self._meta.layer,
+            self._meta.display_name,
+            f"Tool failed: {tool_name} ({error})",
+            branch=EventBranch.MID,
+        )
+        return None
