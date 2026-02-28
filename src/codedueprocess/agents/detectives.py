@@ -48,11 +48,9 @@ def make_doc_analyst_node(
     chain = llm.with_structured_output(ClaimSet)
 
     def doc_analyst_node(state: AgentState) -> dict[str, object]:
-        docs_path = state.get("docs_path", "")
-        pdf_path = state.get("pdf_path", "")
+        doc_path = state.get("doc_path", "")
         prompt = (
-            "Inspect repository docs and external report claims. "
-            f"Docs path: {docs_path}. External report path: {pdf_path}"
+            f"Inspect repository docs and document claims. Document path: {doc_path}"
         )
         output = ClaimSet.model_validate(chain.invoke(prompt))
         return {"evidences": {"claim_set": output.evidences}}

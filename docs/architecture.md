@@ -17,7 +17,7 @@ The system follows a three-layer pipeline implemented as a directed acyclic grap
 
 ### Input
 *   **GitHub Repository URL:** The codebase to be audited.
-*   **Project Report (Optional):** A PDF or Markdown report describing the architecture, design decisions, and claims.
+*   **Project Report (Optional):** A document (e.g., PDF, Markdown) describing the architecture, design decisions, and claims.
 
 ### Layer 0: Ingestion
 *   **Cloner / Loader:** Responsible for securely cloning the repository, validating access, and preparing the file system for analysis. It distributes the codebase path to the detectives.
@@ -128,7 +128,7 @@ Rich console output for observability and debugging:
            ├─ RepoInvestigator: Analyzing git history (tree-sitter)...
            ├─ RepoInvestigator: ✓ 12 commits found
            ├─ DocAnalyst: Scanning repo docs & external report...
-           └─ DocAnalyst: ✓ Found README.md + 1 PDF
+           └─ DocAnalyst: ✓ Found README.md + Document
 
 [14:32:42] ⚖️  LAYER 2: JUDGES (Git Forensic Analysis)
            ├─ Panel Deliberation: Active

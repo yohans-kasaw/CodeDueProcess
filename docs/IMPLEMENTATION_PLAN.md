@@ -58,7 +58,7 @@ Implement agents as LangGraph nodes (functions or runnables) that accept the gra
         - Input: `repo_path` from State.
         - Output: Updates `evidences` (merges `RepositoryFacts`).
     - `doc_analyst_node`:
-        - Input: `docs_path` from State.
+        - Input: `doc_path` from State.
         - Output: Updates `evidences` (merges `ClaimSet`).
 
 - [x] **Task 2.3: Implement Judge Nodes**

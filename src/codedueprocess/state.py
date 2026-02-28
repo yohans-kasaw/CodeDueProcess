@@ -1,7 +1,7 @@
 """State management for CodeDueProcess agents."""
 
 import operator
-from typing import Annotated, NotRequired
+from typing import Annotated
 
 from typing_extensions import TypedDict
 
@@ -32,9 +32,8 @@ class AgentState(TypedDict):
     """State for the CodeDueProcess agent workflow."""
 
     repo_url: str
-    pdf_path: str
-    repo_path: NotRequired[str]
-    docs_path: NotRequired[str]
+    repo_path: str
+    doc_path: str
     # The Rubric dimensions to be evaluated
     rubric_dimensions: list[Dimension]
 
