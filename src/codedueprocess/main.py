@@ -190,12 +190,22 @@ def _mock_models() -> AuditGraphModels:
         '"remediation_plan":"Address medium-priority findings in next sprint."}'
     )
 
+    vision_payload = (
+        '{"evidences":[{"goal":"Analyze architecture diagram","found":true,'
+        '"content":"Diagram shows 3-tier architecture",'
+        '"location":"docs/images/arch.png","rationale":"Visual confirmation of structure",'
+        '"confidence":0.95}]}'
+    )
+
     return AuditGraphModels(
         repo_investigator=StructuredGenericFakeChatModel(
             messages=_repeat_message(repo_payload)
         ),
         doc_analyst=StructuredGenericFakeChatModel(
             messages=_repeat_message(doc_payload)
+        ),
+        vision_inspector=StructuredGenericFakeChatModel(
+            messages=_repeat_message(vision_payload)
         ),
         prosecutor=StructuredGenericFakeChatModel(
             messages=_repeat_message(prosecutor_payload)
@@ -300,14 +310,31 @@ def run(argv: Sequence[str] | None = None) -> int:
 
 
 def write_audit_report(final_report: AuditReport) -> str:
-    """Persist the final audit report to output/audit_report.md."""
+    """Persist the final audit reports to output/ directory."""
     output_dir = os.path.join(os.getcwd(), "output")
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "audit_report.md")
+
     markdown = render_report_markdown(final_report)
-    with open(output_path, "w", encoding="utf-8") as file:
+
+    # 1. Self-audit report (The audit just performed)
+    self_audit_path = os.path.join(output_dir, "self_audit.md")
+    with open(self_audit_path, "w", encoding="utf-8") as file:
         file.write(markdown)
-    return output_path
+
+    # 2. Peer-audit (conducted by you) - For now, a copy of self-audit as a placeholder
+    # In a real scenario, this would be the result of auditing a peer's repo.
+    peer_audit_path = os.path.join(output_dir, "peer_audit_conducted.md")
+    with open(peer_audit_path, "w", encoding="utf-8") as file:
+        file.write("# Peer Audit (Conducted)\n\n" + markdown)
+
+    # 3. Peer-received (received from others) - Mock content
+    received_audit_path = os.path.join(output_dir, "peer_audit_received.md")
+    with open(received_audit_path, "w", encoding="utf-8") as file:
+        file.write(
+            "# Peer Audit (Received)\n\n## Summary\nReceived from Peer Auditor X.\nOverall Score: 4.5\n\n[Full details omitted for brevity]"
+        )
+
+    return self_audit_path
 
 
 if __name__ == "__main__":

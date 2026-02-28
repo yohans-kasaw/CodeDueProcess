@@ -64,3 +64,40 @@ def get_audit_tools(repo_path: str) -> list[BaseTool]:
     tools.append(get_git_history)
 
     return tools
+
+
+def get_doc_tools(repo_path: str) -> list[BaseTool]:
+    """Return tools for document analysis including PDF ingestion and RAG."""
+    try:
+        from codedueprocess.doc_tools import DocumentTools
+
+        doc_tools = DocumentTools()
+
+        @tool("ingest_pdf")
+        def ingest_pdf(pdf_path: str) -> str:
+            """Ingest a PDF file for analysis. Returns number of chunks indexed."""
+            try:
+                chunks = doc_tools.ingest_pdf(pdf_path)
+                doc_tools.index_chunks(chunks)
+                return f"Successfully ingested {len(chunks)} chunks from {pdf_path}"
+            except Exception as e:
+                return f"Error ingesting PDF: {str(e)}"
+
+        @tool("semantic_search")
+        def semantic_search(query: str) -> str:
+            """Search ingested documents for relevant content."""
+            try:
+                results = doc_tools.semantic_search(query)
+                if not results:
+                    return "No relevant information found."
+
+                formatted = []
+                for chunk, score in results:
+                    formatted.append(f"[Score: {score:.2f}] {chunk.content}...")
+                return "\n\n".join(formatted)
+            except Exception as e:
+                return f"Error searching documents: {str(e)}"
+
+        return [ingest_pdf, semantic_search]
+    except ImportError:
+        return []

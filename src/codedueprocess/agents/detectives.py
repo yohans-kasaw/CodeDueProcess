@@ -17,7 +17,7 @@ from codedueprocess.printing.tracer import AuditTracer, ToolLifecycleCallback
 from codedueprocess.rubric_prompt import format_dimensions, format_rubric_metadata
 from codedueprocess.schemas.models import Evidence
 from codedueprocess.state import AgentState
-from codedueprocess.tools.setup import get_audit_tools
+from codedueprocess.tools.setup import get_audit_tools, get_doc_tools
 
 
 class RepositoryFacts(BaseModel):
@@ -152,7 +152,7 @@ def make_doc_analyst_node(
         if not rubric_dimensions:
             raise ValueError("rubric_dimensions is required for doc_analyst")
 
-        tools = get_audit_tools(repo_path)
+        tools = get_audit_tools(repo_path) + get_doc_tools(repo_path)
         if tracer is not None:
             tracer.tools_loaded(
                 "doc_analyst",
