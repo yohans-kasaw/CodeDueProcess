@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from src.codedueprocess.agents.types import StateNode
-from src.codedueprocess.schemas.models import AuditReport
-from src.codedueprocess.state import AgentState
+from codedueprocess.agents.types import StateNode
+from codedueprocess.schemas.models import AuditReport
+from codedueprocess.state import AgentState
 
 
 def make_chief_justice_node(

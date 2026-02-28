@@ -7,9 +7,9 @@ from typing import Any, Literal
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable
 
-from src.codedueprocess.agents.types import StateNode
-from src.codedueprocess.schemas.models import JudicialOpinion
-from src.codedueprocess.state import AgentState
+from codedueprocess.agents.types import StateNode
+from codedueprocess.schemas.models import JudicialOpinion
+from codedueprocess.state import AgentState
 
 
 def build_judicial_opinion_chain(

@@ -14,7 +14,6 @@ This document outlines the implementation plan for the Auditor Architecture (The
   - Keep `RunnableConfig` for graph invocation config (`graph.invoke(input, config=...)`) and runtime context propagation.
 - Library-over-custom guidance:
   - Use `GenericFakeChatModel` from `langchain_core.language_models.fake_chat_models` instead of custom `MockLLMClient`.
-  - Use LangSmith tracing utilities (`@traceable`) instead of custom tracing wrappers.
   - Use Rich primitives (`Console`, `Panel`, `Table`, `Tree`, `Progress`, `Live`) instead of handcrafted ANSI formatting.
 
 ## Phase 0: Environment Setup
@@ -99,7 +98,6 @@ Wire the agents together using `langgraph.graph.StateGraph`.
 ### Step 4: Observability & Quality Gates (LangSmith)
 
 - [ ] **Task 4.1: Trace Core Entry Points**
-    - Add `@traceable` to top-level orchestration entry points (graph invocation boundary).
     - If direct SDK clients are used, wrap them with LangSmith wrappers where applicable.
 
 - [ ] **Task 4.2: Clarify Interface Ownership**

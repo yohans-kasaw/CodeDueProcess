@@ -1,18 +1,18 @@
 """Agent node factories."""
 
-from src.codedueprocess.agents.chief import make_chief_justice_node
-from src.codedueprocess.agents.detectives import (
+from codedueprocess.agents.chief import make_chief_justice_node
+from codedueprocess.agents.detectives import (
     make_doc_analyst_node,
     make_repo_investigator_node,
 )
-from src.codedueprocess.agents.judges import (
+from codedueprocess.agents.judges import (
     build_judicial_opinion_chain,
     make_defense_node,
     make_judge_node,
     make_prosecutor_node,
     make_tech_lead_node,
 )
-from src.codedueprocess.agents.types import StateNode, StateUpdate
+from codedueprocess.agents.types import StateNode, StateUpdate
 
 __all__ = [
     "build_judicial_opinion_chain",

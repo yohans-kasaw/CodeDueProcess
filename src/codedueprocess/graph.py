@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NotRequired
+from typing import Any, NotRequired
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from src.codedueprocess.agents import (
+from codedueprocess.agents import (
     make_chief_justice_node,
     make_defense_node,
     make_doc_analyst_node,
@@ -18,8 +18,8 @@ from src.codedueprocess.agents import (
     make_repo_investigator_node,
     make_tech_lead_node,
 )
-from src.codedueprocess.agents.types import StateNode
-from src.codedueprocess.state import AgentState
+from codedueprocess.agents.types import StateNode
+from codedueprocess.state import AgentState
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ class AuditRuntimeContext(TypedDict):
     trace_id: NotRequired[str]
 
 
-def build_audit_graph(models: AuditGraphModels) -> object:
+def build_audit_graph(models: AuditGraphModels) -> Any:
     """Build the parallel detective -> judge -> chief justice topology."""
     builder = StateGraph(AgentState, context_schema=AuditRuntimeContext)
 

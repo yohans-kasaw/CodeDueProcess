@@ -5,7 +5,7 @@ from typing import Annotated
 
 from typing_extensions import TypedDict
 
-from src.codedueprocess.schemas.models import (
+from codedueprocess.schemas.models import (
     AuditReport,
     Dimension,
     Evidence,
