@@ -7,7 +7,8 @@ from time import perf_counter
 from typing import Any, NotRequired, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_litellm import ChatLiteLLM
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
@@ -22,6 +23,8 @@ from codedueprocess.agents import (
 from codedueprocess.agents.types import StateNode
 from codedueprocess.printing.tracer import AuditTracer
 from codedueprocess.state import AgentState
+
+DEFAULT_MODEL_NAME = "gemini/gemini-2.5-flash"
 
 
 @dataclass(frozen=True)
@@ -151,3 +154,17 @@ def run_audit(
     if context is None:
         return cast(AgentState, graph.invoke(state))
     return cast(AgentState, graph.invoke(state, context=context))
+
+
+def make_graph(config: RunnableConfig) -> Any:
+    """Build a deployable graph instance for LangGraph server runtimes."""
+    configurable = config.get("configurable", {})
+    model_name = DEFAULT_MODEL_NAME
+    if isinstance(configurable, dict):
+        configured_model = configurable.get("model")
+        if isinstance(configured_model, str) and configured_model.strip():
+            model_name = configured_model
+
+    llm = ChatLiteLLM(model=model_name, temperature=0)
+    models = AuditGraphModels.from_single(llm)
+    return build_audit_graph(models, tracer=AuditTracer())
